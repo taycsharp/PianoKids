@@ -7,14 +7,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 
+import '../models/piano_note.dart';
 import '../models/song.dart';
 
 /// Audio service for Happy Piano Kids.
 ///
 /// Audio strategy:
-/// 1. Try to play real piano samples from assets.
-/// 2. If a sample is missing, generate a warm acoustic-style piano tone.
-/// 3. If audio fails, skip safely so the child can continue using the app.
+/// 1. Pre-generate and preload the full 88-key piano range for live keyboard.
+/// 2. Play live keyboard notes as independent, fire-and-forget SoLoud voices.
+/// 3. Keep song demo timing separate so rhythm/BPM playback remains stable.
 ///
 /// Important: the generated tone is not a copyrighted sample or exact clone of
 /// Steinway, Yamaha, or any other brand. It is a brand-inspired, synthetic,
@@ -27,20 +28,20 @@ class AudioService {
 
   final AudioPlayer _effectsPlayer = AudioPlayer();
   final Map<String, bool> _assetAvailabilityByNote = {};
-  final Map<String, AudioSource> _keyboardSourcesByNote = {};
+  final Map<String, AudioSource> _keyboardSourcesByNoteName = {};
   late final Future<void> _keyboardAudioReady;
   bool _isKeyboardAudioReady = false;
   var _songDemoToken = 0;
 
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
-  static const int _keyboardNoteDurationMs = 1600;
   static const Duration _audioStartTimeout = Duration(milliseconds: 900);
   static const Duration _soloudLoadTimeout = Duration(seconds: 8);
 
   static const int _sampleRate = 44100;
   static const int _channels = 2;
   static const int _bitsPerSample = 16;
+  static const int _maxActiveKeyboardVoices = 48;
 
   static const Map<String, String> _noteFiles = {
     'C': 'audio/notes/c.mp3',
@@ -58,24 +59,6 @@ class AudioService {
     'High C': 'audio/notes/high_c.mp3',
   };
 
-  /// Equal-tempered beginner piano note frequencies from C4 to C5.
-  /// Black keys are included so kids learn the real piano keyboard pattern.
-  static const Map<String, double> _noteFrequencies = {
-    'C': 261.63,
-    'C#': 277.18,
-    'D': 293.66,
-    'D#': 311.13,
-    'E': 329.63,
-    'F': 349.23,
-    'F#': 369.99,
-    'G': 392.00,
-    'G#': 415.30,
-    'A': 440.00,
-    'A#': 466.16,
-    'B': 493.88,
-    'High C': 523.25,
-  };
-
   Future<void> playNote(String note) async {
     await _playSongDemoNote(note, const Duration(milliseconds: 420));
   }
@@ -83,30 +66,33 @@ class AudioService {
   /// Plays one short, naturally decaying keyboard note.
   ///
   /// This is intentionally fire-and-forget for the live keyboard MVP: every
-  /// call asks SoLoud to start a new voice from a preloaded source, so chords
-  /// and repeated taps never wait for or stop older voices.
+  /// pointer down asks SoLoud to start a new independent voice from a preloaded
+  /// source. Pointer up is handled by the widgets as a highlight-only event.
   void playKeyboardNote(String note) {
-    final debugNote = _debugNoteName(note);
-    if (!_isKeyboardAudioReady || !SoLoud.instance.isInitialized) {
-      debugPrint('Keyboard tone cache not ready for $debugNote');
+    final pianoNote = PianoNote.fromKeyboardLabel(note);
+    if (pianoNote == null) {
+      debugPrint('No piano registry note for keyboard input: $note');
       return;
     }
 
-    final source = _keyboardSourcesByNote[note];
+    debugPrint('Keyboard note triggered: ${pianoNote.name}');
+
+    if (!_isKeyboardAudioReady || !SoLoud.instance.isInitialized) {
+      debugPrint('Keyboard piano cache not ready for ${pianoNote.name}');
+      return;
+    }
+
+    final source = _keyboardSourcesByNoteName[pianoNote.name];
     if (source == null) {
-      debugPrint('No preloaded keyboard source for $debugNote');
+      debugPrint('No preloaded keyboard source for ${pianoNote.name}');
       return;
     }
 
     try {
-      if (_assetAvailabilityByNote[note] == true) {
-        debugPrint('Using preloaded asset note: $debugNote');
-      } else {
-        debugPrint('Using preloaded generated note: $debugNote');
-      }
-      SoLoud.instance.play(source, volume: 0.78);
+      SoLoud.instance.play(source, volume: _keyboardVolumeFor(pianoNote));
+      debugPrint('Soloud voice started: ${pianoNote.name}');
     } catch (error) {
-      debugPrint('Keyboard piano note skipped for $debugNote. Error: $error');
+      debugPrint('Keyboard piano note skipped for ${pianoNote.name}. Error: $error');
     }
   }
 
@@ -218,44 +204,25 @@ class AudioService {
       if (!soloud.isInitialized) {
         await soloud.init().timeout(_soloudLoadTimeout);
       }
-      soloud.setMaxActiveVoiceCount(32);
+      soloud.setMaxActiveVoiceCount(_maxActiveKeyboardVoices);
 
-      for (final entry in _noteFrequencies.entries) {
-        final note = entry.key;
-        final debugNote = _debugNoteName(note);
-        final assetPath = _noteFiles[note];
-        AudioSource? source;
+      for (final pianoNote in PianoNote.standard88) {
+        final bytes = _buildWarmWoodPianoWav(
+          frequency: pianoNote.frequency,
+          midiNumber: pianoNote.midiNumber,
+          durationMs: _keyboardDurationFor(pianoNote),
+          volume: _generationVolumeFor(pianoNote),
+          velocity: 0.72,
+        );
+        final source = await soloud
+            .loadMem(_keyboardToneFileName(pianoNote.name), bytes)
+            .timeout(_soloudLoadTimeout);
 
-        if (assetPath != null && _assetAvailabilityByNote[note] == true) {
-          try {
-            source = await soloud
-                .loadAsset('assets/$assetPath')
-                .timeout(_soloudLoadTimeout);
-          } catch (error) {
-            _assetAvailabilityByNote[note] = false;
-            debugPrint(
-              'Asset unavailable, using generated keyboard tone: $debugNote',
-            );
-          }
-        }
-
-        if (source == null) {
-          final bytes = _buildWarmWoodPianoWav(
-            frequency: entry.value,
-            durationMs: _keyboardNoteDurationMs,
-            volume: 0.52,
-            velocity: 0.72,
-          );
-          source = await soloud
-              .loadMem(_keyboardToneFileName(note), bytes)
-              .timeout(_soloudLoadTimeout);
-        }
-
-        _keyboardSourcesByNote[note] = source;
+        _keyboardSourcesByNoteName[pianoNote.name] = source;
       }
 
       _isKeyboardAudioReady = true;
-      debugPrint('Tone cache ready for keyboard');
+      debugPrint('Piano cache ready: ${_keyboardSourcesByNoteName.length} notes');
     } catch (error) {
       _isKeyboardAudioReady = false;
       debugPrint('Keyboard audio engine unavailable. Error: $error');
@@ -280,9 +247,9 @@ class AudioService {
   }
 
   Future<void> _playSongDemoNote(String note, Duration duration) async {
-    final debugNote = _debugNoteName(note);
-    final frequency = _noteFrequencies[note];
-    if (frequency == null) {
+    final pianoNote = PianoNote.fromKeyboardLabel(note);
+    final debugNote = pianoNote?.name ?? _debugNoteName(note);
+    if (pianoNote == null) {
       debugPrint('No generated frequency for note: $debugNote');
       await Future<void>.delayed(duration);
       return;
@@ -309,7 +276,8 @@ class AudioService {
         debugPrint('Using generated note: $debugNote');
         await _playGeneratedTone(
           player: player,
-          frequency: frequency,
+          frequency: pianoNote.frequency,
+          midiNumber: pianoNote.midiNumber,
           durationMs: playMilliseconds,
           volume: 0.54,
           velocity: 0.68,
@@ -345,6 +313,7 @@ class AudioService {
   Future<void> _playGeneratedTone({
     required AudioPlayer player,
     required double frequency,
+    int? midiNumber,
     required int durationMs,
     required double volume,
     required double velocity,
@@ -353,11 +322,11 @@ class AudioService {
       await player.stop();
       final bytes = _buildWarmWoodPianoWav(
         frequency: frequency,
+        midiNumber: midiNumber,
         durationMs: durationMs,
         volume: volume,
         velocity: velocity,
       );
-      debugPrint('Generated WAV bytes length: ${bytes.length}');
       await player
           .play(BytesSource(bytes, mimeType: 'audio/wav'))
           .timeout(_audioStartTimeout);
@@ -368,30 +337,50 @@ class AudioService {
   }
 
   String _debugNoteName(String note) {
-    if (note == 'High C') return 'C5';
-    return '${note}4';
+    final pianoNote = PianoNote.fromKeyboardLabel(note);
+    if (pianoNote != null) return pianoNote.name;
+    return note;
   }
 
-  String _keyboardToneFileName(String note) {
-    final safeNote = note
+  String _keyboardToneFileName(String noteName) {
+    final safeNote = noteName
         .replaceAll('#', '_sharp')
         .replaceAll(' ', '_')
         .toLowerCase();
-    return 'keyboard_$safeNote.wav';
+    return 'happy_piano_kids_$safeNote.wav';
   }
 
-  /// Builds a small stereo WAV file that is warmer and more natural than a beep.
+  int _keyboardDurationFor(PianoNote note) {
+    if (note.midiNumber <= 47) return 1200; // A0-B2: warmer, longer decay.
+    if (note.midiNumber >= 84) return 850; // C6-C8: bright but gentle.
+    return 1000; // C3-B5: balanced live keyboard note.
+  }
+
+  double _generationVolumeFor(PianoNote note) {
+    if (note.midiNumber <= 47) return 0.50;
+    if (note.midiNumber >= 84) return 0.42;
+    return 0.48;
+  }
+
+  double _keyboardVolumeFor(PianoNote note) {
+    if (note.midiNumber <= 47) return 0.84;
+    if (note.midiNumber >= 84) return 0.68;
+    return 0.78;
+  }
+
+  /// Generates a short, warm acoustic-style piano WAV.
   ///
-  /// The synthesis uses a few simple acoustic-piano ideas:
-  /// - three slightly detuned virtual strings per note
-  /// - quick hammer attack
-  /// - natural exponential decay
+  /// The synthesis is intentionally lightweight but piano-like:
+  /// - fast hammer attack
+  /// - layered harmonics/string detune
+  /// - natural decay
   /// - harmonic partials that decay faster at higher frequencies
   /// - a tiny hammer/noise transient
   /// - soft saturation instead of hard clipping
   /// - subtle stereo spread for a soundboard-like feeling
   Uint8List _buildWarmWoodPianoWav({
     required double frequency,
+    int? midiNumber,
     required int durationMs,
     required double volume,
     required double velocity,
@@ -399,22 +388,29 @@ class AudioService {
     final totalSamples = (_sampleRate * durationMs / 1000).round();
     final pcmBytes = BytesBuilder(copy: false);
 
-    // Higher keys naturally fade a little faster. Lower keys feel warmer.
-    final keyPosition = ((frequency - 261.63) / (523.25 - 261.63)).clamp(0.0, 1.0);
-    final mainDecay = 2.0 + keyPosition * 1.25;
-    final bodyDecay = 0.9 + keyPosition * 0.65;
-    final brightness = 0.72 + keyPosition * 0.22;
+    final notePosition = _pianoRangePosition(frequency, midiNumber);
+    final lowWarmth = 1.0 - notePosition;
+    final highBrightness = notePosition;
+
+    final mainDecay = 1.45 + highBrightness * 2.2;
+    final bodyDecay = 0.68 + highBrightness * 1.12;
+    final brightness = 0.56 + highBrightness * 0.44;
+    final harmonicScale = 0.78 + highBrightness * 0.26;
 
     for (var i = 0; i < totalSamples; i++) {
       final t = i / _sampleRate;
       final progress = i / totalSamples;
 
       // Fast hammer attack, then wood/string decay. The release fade prevents
-      // clicks when the generated WAV ends.
-      final attack = 1.0 - math.exp(-t * 420.0);
-      final stringDecay = 0.74 * math.exp(-mainDecay * progress) +
-          0.26 * math.exp(-bodyDecay * progress);
-      final release = progress > 0.86 ? (1.0 - progress) / 0.14 : 1.0;
+      // clicks when the generated WAV ends without needing a pointer-up stop.
+      final attack = 1.0 - math.exp(-t * 440.0);
+      final stringDecay = (0.76 + lowWarmth * 0.08) * math.exp(-mainDecay * progress) +
+          (0.24 - lowWarmth * 0.04) * math.exp(-bodyDecay * progress);
+      final releaseStart = notePosition > 0.72 ? 0.80 : 0.86;
+      final releaseLength = 1.0 - releaseStart;
+      final release = progress > releaseStart
+          ? (1.0 - progress) / releaseLength
+          : 1.0;
       final envelope = attack * stringDecay * release.clamp(0.0, 1.0);
 
       final left = _pianoSample(
@@ -422,6 +418,7 @@ class AudioService {
         frequency: frequency,
         velocity: velocity,
         brightness: brightness,
+        harmonicScale: harmonicScale,
         detuneDirection: -1,
       );
       final right = _pianoSample(
@@ -429,12 +426,13 @@ class AudioService {
         frequency: frequency,
         velocity: velocity,
         brightness: brightness,
+        harmonicScale: harmonicScale,
         detuneDirection: 1,
       );
 
       // Very short hammer transient adds acoustic touch but remains gentle.
-      final hammer = _hammerTransient(t, frequency, velocity);
-      final body = _woodBodyResonance(t, frequency, keyPosition);
+      final hammer = _hammerTransient(t, frequency, velocity, notePosition);
+      final body = _woodBodyResonance(t, frequency, notePosition);
 
       final leftValue = _toInt16(
         _softClip((left + hammer * 0.55 + body) * envelope * volume),
@@ -454,11 +452,21 @@ class AudioService {
     return _wrapPcmAsWav(pcmData);
   }
 
+  double _pianoRangePosition(double frequency, int? midiNumber) {
+    final midi = midiNumber ??
+        (PianoNote.a4Midi + 12 * math.log(frequency / PianoNote.a4Frequency) / math.ln2);
+    return ((midi - PianoNote.lowestPianoMidi) /
+            (PianoNote.highestPianoMidi - PianoNote.lowestPianoMidi))
+        .clamp(0.0, 1.0)
+        .toDouble();
+  }
+
   double _pianoSample({
     required double t,
     required double frequency,
     required double velocity,
     required double brightness,
+    required double harmonicScale,
     required int detuneDirection,
   }) {
     // Three virtual strings, like an acoustic piano note, with very small
@@ -473,12 +481,12 @@ class AudioService {
     for (final detune in detunes) {
       final f = frequency * detune;
       sample += _harmonic(f, t, 1, 1.00);
-      sample += _harmonic(f, t, 2, 0.48 * brightness);
-      sample += _harmonic(f, t, 3, 0.24 * brightness);
-      sample += _harmonic(f, t, 4, 0.12 * brightness);
-      sample += _harmonic(f, t, 5, 0.065 * brightness);
-      sample += _harmonic(f, t, 6, 0.036 * brightness);
-      sample += _harmonic(f, t, 8, 0.018 * brightness);
+      sample += _harmonic(f, t, 2, 0.48 * brightness * harmonicScale);
+      sample += _harmonic(f, t, 3, 0.24 * brightness * harmonicScale);
+      sample += _harmonic(f, t, 4, 0.12 * brightness * harmonicScale);
+      sample += _harmonic(f, t, 5, 0.060 * brightness * harmonicScale);
+      sample += _harmonic(f, t, 6, 0.032 * brightness * harmonicScale);
+      sample += _harmonic(f, t, 8, 0.014 * brightness * harmonicScale);
     }
 
     // Velocity changes timbre: harder notes are slightly brighter.
@@ -492,18 +500,26 @@ class AudioService {
     return amount * harmonicDecay * math.sin(2 * math.pi * baseFrequency * harmonic * t);
   }
 
-  double _hammerTransient(double t, double frequency, double velocity) {
+  double _hammerTransient(
+    double t,
+    double frequency,
+    double velocity,
+    double notePosition,
+  ) {
     final transient = math.exp(-t * 95.0);
     final clickTone = math.sin(2 * math.pi * frequency * 7.0 * t);
-    final woodyTap = math.sin(2 * math.pi * 1800.0 * t) * 0.35;
-    final softNoise = _deterministicNoise(t) * 0.18;
+    final highSoftener = 1.0 - notePosition * 0.35;
+    final woodyTap = math.sin(2 * math.pi * 1800.0 * t) * 0.35 * highSoftener;
+    final softNoise = _deterministicNoise(t) * 0.18 * highSoftener;
     return transient * velocity * 0.13 * (clickTone + woodyTap + softNoise);
   }
 
-  double _woodBodyResonance(double t, double frequency, double keyPosition) {
-    // Subtle resonances give a small soundboard/body feeling.
-    final bodyAmount = 0.026 * (1.0 - keyPosition * 0.35);
-    final bodyDecay = math.exp(-t * 2.2);
+  double _woodBodyResonance(double t, double frequency, double notePosition) {
+    // Subtle resonances give a small soundboard/body feeling. Low notes get a
+    // little more body warmth; high notes stay shorter and less piercing.
+    final lowWarmth = 1.0 - notePosition;
+    final bodyAmount = 0.018 + lowWarmth * 0.020;
+    final bodyDecay = math.exp(-t * (1.8 + notePosition * 1.0));
     final body1 = math.sin(2 * math.pi * (frequency * 0.5) * t) * 0.55;
     final body2 = math.sin(2 * math.pi * (frequency * 1.5) * t) * 0.25;
     final body3 = math.sin(2 * math.pi * 176.0 * t) * 0.20;
@@ -570,14 +586,14 @@ class AudioService {
   Future<void> dispose() async {
     _songDemoToken++;
     await stopAllNotes();
-    for (final source in _keyboardSourcesByNote.values) {
+    for (final source in _keyboardSourcesByNoteName.values) {
       try {
         await SoLoud.instance.disposeSource(source);
       } catch (_) {
         // Audio cleanup should never break the app.
       }
     }
-    _keyboardSourcesByNote.clear();
+    _keyboardSourcesByNoteName.clear();
     await _effectsPlayer.dispose();
   }
 }

@@ -36,9 +36,9 @@ class _PianoScreenState extends State<PianoScreen> {
     final audio = context.read<AudioService>();
     if (_keyboardDebugLogs) {
       final debugNote = _debugNoteName(note);
-      debugPrint('Parent calls playKeyboardNote before UI updates: $debugNote');
+      debugPrint('Parent starts keyboard note before UI updates: $debugNote');
     }
-    audio.playKeyboardNote(note);
+    audio.startKeyboardNoteForPress(note, pressId);
 
     _activePresses[pressId] = note;
     if (_keyboardDebugLogs) {
@@ -67,6 +67,8 @@ class _PianoScreenState extends State<PianoScreen> {
       final debugNote = _debugNoteName(note);
       debugPrint('Parent key up received: $pressId $debugNote');
     }
+
+    unawaited(context.read<AudioService>().stopKeyboardNoteForPress(pressId));
 
     _activePresses.remove(pressId);
     if (_keyboardDebugLogs) {

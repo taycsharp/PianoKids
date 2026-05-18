@@ -29,7 +29,10 @@ class AudioService {
   final SoLoud _soloud = SoLoud.instance;
   final Map<String, bool> _assetAvailabilityByNote = {};
   final Map<String, AudioSource> _keyboardSoundByNote = {};
+  final Map<String, AudioSource> _keyboardAttackSoundByNote = {};
+  final Map<String, AudioSource> _keyboardSustainSoundByNote = {};
   final Map<String, _KeyboardSampleInfo> _keyboardSampleInfoByNote = {};
+  final Map<int, ActiveKeyboardVoice> _activeKeyboardVoicesByPressId = {};
   final ValueNotifier<bool> _keyboardCacheReadyNotifier = ValueNotifier(false);
   late final Future<void> keyboardCacheReady;
   var _songDemoToken = 0;
@@ -43,6 +46,11 @@ class AudioService {
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
   static const int _keyboardNoteDurationMs = 1200;
+  static const int _keyboardAttackDurationMs = 180;
+  static const int _keyboardSustainDurationMs = 3600;
+  static const Duration _keyboardReleaseFadeDuration = Duration(
+    milliseconds: 180,
+  );
   static const bool _keyboardDebugLogs = false;
   static const bool _useDiagnosticClickTone = false;
   static const Duration _audioStartTimeout = Duration(milliseconds: 900);
@@ -104,10 +112,9 @@ class AudioService {
 
   /// Plays one short, naturally decaying keyboard note.
   ///
-  /// Live keyboard playback uses preloaded flutter_soloud sources. Key presses
-  /// never allocate or configure `AudioPlayer` instances, never generate audio,
-  /// and never stop audio on release, so chords and repeated taps can start as
-  /// independent SoLoud voices.
+  /// This remains a one-shot compatibility path for non-press-aware callers.
+  /// The Play Piano screen uses [startKeyboardNoteForPress] so each held key can
+  /// own and release its sustain voice independently.
   void playKeyboardNote(String note) {
     unawaited(
       _playPreloadedPianoNote(
@@ -117,27 +124,72 @@ class AudioService {
     );
   }
 
-  /// Legacy API for non-keyboard callers. It now uses the same fire-and-forget
-  /// decaying note model as the live keyboard.
+  /// Starts the Play Piano live keyboard sound for a specific pointer press.
+  ///
+  /// Pointer down immediately triggers a bright attack sample and starts a soft
+  /// sustain/resonance voice. The sustain handle is stored by [pressId], so
+  /// chords can release one note without stopping the others.
+  void startKeyboardNoteForPress(String note, int pressId) {
+    final debugNote = _debugNoteName(note);
+    unawaited(_releaseKeyboardVoice(pressId, immediate: true));
+
+    final attackSource = _keyboardAttackSoundByNote[note];
+    final sustainSource = _keyboardSustainSoundByNote[note];
+    if (!_isSoLoudReady || attackSource == null || sustainSource == null) {
+      if (_keyboardDebugLogs) {
+        debugPrint('Keyboard press skipped: $debugNote cache is not ready');
+      }
+      playKeyboardNote(note);
+      return;
+    }
+
+    _playSoLoudKeyboardNote(
+      debugNote: '$debugNote attack',
+      source: attackSource,
+      sampleInfo: _keyboardSampleInfoByNote[note],
+      volume: 0.86,
+    );
+
+    final sustainHandle = _playSoLoudKeyboardNote(
+      debugNote: '$debugNote sustain',
+      source: sustainSource,
+      sampleInfo: null,
+      volume: 0.34,
+    );
+    if (sustainHandle == null) return;
+
+    _activeKeyboardVoicesByPressId[pressId] = ActiveKeyboardVoice(
+      pressId: pressId,
+      note: note,
+      handle: sustainHandle,
+      startedAt: DateTime.now(),
+    );
+  }
+
+  /// Releases only the sustain voice that belongs to [pressId]. Other held keys
+  /// keep ringing, which preserves chord behavior.
+  Future<void> stopKeyboardNoteForPress(int pressId) async {
+    await _releaseKeyboardVoice(pressId);
+  }
+
+  /// Legacy API for non-keyboard callers. It now uses the same press-aware
+  /// sustain model when a caller has a stable press ID.
   Future<void> startNote(String note) async {
     playKeyboardNote(note);
   }
 
   /// Legacy press-aware API kept for screens that still pass pointer IDs.
-  /// Release is intentionally ignored so audio can decay naturally.
   Future<void> startNoteForPress({
     required String note,
     required int pressId,
   }) async {
-    playKeyboardNote(note);
+    startKeyboardNoteForPress(note, pressId);
   }
 
-  /// Release only affects UI highlight in the keyboard widgets; audio is not
-  /// stopped for MVP live notes.
-  Future<void> stopNoteForPress(int pressId) async {}
+  Future<void> stopNoteForPress(int pressId) async {
+    await stopKeyboardNoteForPress(pressId);
+  }
 
-  /// Release only affects UI highlight in the keyboard widgets; audio is not
-  /// stopped for MVP live notes.
   Future<void> stopNote(String note) async {}
 
   Future<void> playSuccess() async {
@@ -181,9 +233,11 @@ class AudioService {
   }
 
   Future<void> stopAllNotes() async {
-    // Live keyboard notes decay naturally and are not stopped by pointer-up.
-    // Song demos still use their own short-lived players, so there is no global
-    // keyboard stop lifecycle to run here.
+    final pressIds = List<int>.of(_activeKeyboardVoicesByPressId.keys);
+    await Future.wait<void>([
+      for (final pressId in pressIds)
+        _releaseKeyboardVoice(pressId, immediate: true),
+    ]);
   }
 
   Future<void> _initializeKeyboardAudio() async {
@@ -201,7 +255,7 @@ class AudioService {
       // keeps the live keyboard path small and avoids an 88-note cache for now.
       for (final entry in _noteFrequencies.entries) {
         final debugNote = _debugNoteName(entry.key);
-        final sample = _useDiagnosticClickTone
+        final oneShotSample = _useDiagnosticClickTone
             ? _buildDiagnosticClickToneWav(frequency: entry.value)
             : _buildWarmWoodPianoWav(
                 frequency: entry.value,
@@ -210,22 +264,58 @@ class AudioService {
                 velocity: 1.0,
                 liveKeyboard: true,
               );
+        final attackSample = _useDiagnosticClickTone
+            ? _buildDiagnosticClickToneWav(frequency: entry.value)
+            : _buildWarmWoodPianoWav(
+                frequency: entry.value,
+                durationMs: _keyboardAttackDurationMs,
+                volume: 0.86,
+                velocity: 1.0,
+                liveKeyboard: true,
+              );
+        final sustainSample = _useDiagnosticClickTone
+            ? _buildDiagnosticClickToneWav(frequency: entry.value)
+            : _buildWarmWoodPianoWav(
+                frequency: entry.value,
+                durationMs: _keyboardSustainDurationMs,
+                volume: 0.38,
+                velocity: 0.62,
+                liveKeyboard: true,
+                sustainLayer: true,
+              );
         if (_keyboardDebugLogs) {
           debugPrint(
-            'Live sample duration $debugNote = ${sample.info.durationMs}ms; '
-            'first non-zero sample at ${sample.info.firstNonZeroSampleMs}ms; '
-            'attack peak within first 30ms = ${sample.info.attackPeakWithinFirst30Ms}',
+            'Live attack sample $debugNote = ${attackSample.info.durationMs}ms; '
+            'first non-zero sample at ${attackSample.info.firstNonZeroSampleMs}ms; '
+            'attack peak within first 30ms = ${attackSample.info.attackPeakWithinFirst30Ms}',
+          );
+          debugPrint(
+            'Live sustain sample $debugNote = ${sustainSample.info.durationMs}ms; '
+            'first non-zero sample at ${sustainSample.info.firstNonZeroSampleMs}ms',
           );
         }
         _keyboardSoundByNote[entry.key] = await _soloud.loadMem(
-          '$debugNote.wav',
-          sample.bytes,
+          '$debugNote-one-shot.wav',
+          oneShotSample.bytes,
           mode: LoadMode.memory,
         );
-        _keyboardSampleInfoByNote[entry.key] = sample.info;
+        _keyboardAttackSoundByNote[entry.key] = await _soloud.loadMem(
+          '$debugNote-attack.wav',
+          attackSample.bytes,
+          mode: LoadMode.memory,
+        );
+        _keyboardSustainSoundByNote[entry.key] = await _soloud.loadMem(
+          '$debugNote-sustain.wav',
+          sustainSample.bytes,
+          mode: LoadMode.memory,
+        );
+        _keyboardSampleInfoByNote[entry.key] = oneShotSample.info;
       }
 
-      _isSoLoudReady = _keyboardSoundByNote.length == _noteFrequencies.length;
+      _isSoLoudReady =
+          _keyboardSoundByNote.length == _noteFrequencies.length &&
+          _keyboardAttackSoundByNote.length == _noteFrequencies.length &&
+          _keyboardSustainSoundByNote.length == _noteFrequencies.length;
       _keyboardCacheReadyNotifier.value = _isSoLoudReady;
       debugPrint(
         'SoLoud keyboard cache ready: ${_keyboardSoundByNote.length} notes',
@@ -259,10 +349,11 @@ class AudioService {
     }
   }
 
-  bool _playSoLoudKeyboardNote({
+  SoundHandle? _playSoLoudKeyboardNote({
     required String debugNote,
     required AudioSource source,
     required _KeyboardSampleInfo? sampleInfo,
+    double volume = 0.86,
   }) {
     if (_keyboardDebugLogs) {
       final beforePlayMs = DateTime.now().millisecondsSinceEpoch;
@@ -277,21 +368,19 @@ class AudioService {
     }
 
     try {
+      final voice = _soloud.play(source, volume: volume);
       if (_keyboardDebugLogs) {
-        final voice = _soloud.play(source, volume: 0.86);
         final afterPlayMs = DateTime.now().millisecondsSinceEpoch;
         debugPrint(
           'SoLoud voice started: $debugNote voice=$voice at ${afterPlayMs}ms',
         );
-      } else {
-        _soloud.play(source, volume: 0.86);
       }
-      return true;
+      return voice;
     } catch (error) {
       debugPrint(
         'Keyboard note skipped: $debugNote SoLoud play failed. Error: $error',
       );
-      return false;
+      return null;
     }
   }
 
@@ -345,6 +434,29 @@ class AudioService {
     }
   }
 
+  Future<void> _releaseKeyboardVoice(
+    int pressId, {
+    bool immediate = false,
+  }) async {
+    final voice = _activeKeyboardVoicesByPressId.remove(pressId);
+    if (voice == null) return;
+
+    try {
+      if (!immediate) {
+        _soloud.fadeVolume(voice.handle, 0.0, _keyboardReleaseFadeDuration);
+        await Future<void>.delayed(_keyboardReleaseFadeDuration);
+      }
+      await _soloud.stop(voice.handle);
+    } catch (error) {
+      if (_keyboardDebugLogs) {
+        debugPrint(
+          'Keyboard sustain release skipped: ${_debugNoteName(voice.note)} '
+          'press=$pressId. Error: $error',
+        );
+      }
+    }
+  }
+
   Future<bool> _playPreloadedPianoNote(
     String note, {
     required bool waitForCache,
@@ -377,11 +489,12 @@ class AudioService {
       debugPrint('Piano note triggered: $debugNote at ${requestedAtMs}ms');
     }
 
-    return _playSoLoudKeyboardNote(
+    final handle = _playSoLoudKeyboardNote(
       debugNote: debugNote,
       source: source,
       sampleInfo: _keyboardSampleInfoByNote[note],
     );
+    return handle != null;
   }
 
   Future<void> _playFallbackPianoTone({
@@ -536,6 +649,7 @@ class AudioService {
     required double volume,
     required double velocity,
     bool liveKeyboard = false,
+    bool sustainLayer = false,
   }) {
     final totalSamples = (_sampleRate * durationMs / 1000).round();
     final normalizedSamples = List<double>.filled(totalSamples * _channels, 0);
@@ -548,13 +662,19 @@ class AudioService {
     // Higher keys naturally fade a little faster. Lower keys feel warmer.
     final keyPosition = ((frequency - 261.63) / (523.25 - 261.63))
         .clamp(0.0, 1.0);
-    final mainDecay = liveKeyboard
+    final mainDecay = sustainLayer
+        ? 2.8 + keyPosition * 0.9
+        : liveKeyboard
         ? 8.4 + keyPosition * 2.4
         : 2.15 + keyPosition * 1.28;
-    final bodyDecay = liveKeyboard
+    final bodyDecay = sustainLayer
+        ? 1.35 + keyPosition * 0.45
+        : liveKeyboard
         ? 13.8 + keyPosition * 3.2
         : 1.08 + keyPosition * 0.7;
-    final brightness = liveKeyboard
+    final brightness = sustainLayer
+        ? 0.66 + keyPosition * 0.12
+        : liveKeyboard
         ? 0.98 + keyPosition * 0.28
         : 0.88 + keyPosition * 0.22;
 
@@ -564,15 +684,24 @@ class AudioService {
 
       // Live keyboard samples must be audible immediately. Use an instant
       // attack floor with a very fast ramp instead of a soft fade-in.
-      final attack = liveKeyboard
+      final attack = sustainLayer
+          ? 0.72 + 0.28 * (1.0 - math.exp(-t * 520.0))
+          : liveKeyboard
           ? 0.9 + 0.1 * (1.0 - math.exp(-t * 1800.0))
           : 1.0 - math.exp(-t * 420.0);
-      final stringDecay = liveKeyboard
+      final stringDecay = sustainLayer
+          ? 0.66 * math.exp(-mainDecay * progress) +
+              0.34 * math.exp(-bodyDecay * progress)
+          : liveKeyboard
           ? 0.96 * math.exp(-mainDecay * progress) +
               0.04 * math.exp(-bodyDecay * progress)
           : 0.78 * math.exp(-mainDecay * progress) +
               0.22 * math.exp(-bodyDecay * progress);
-      final releaseStart = liveKeyboard ? 0.54 : 0.86;
+      final releaseStart = sustainLayer
+          ? 0.72
+          : liveKeyboard
+          ? 0.54
+          : 0.86;
       final releaseLength = 1.0 - releaseStart;
       final release = progress > releaseStart
           ? (1.0 - progress) / releaseLength
@@ -600,16 +729,26 @@ class AudioService {
         frequency,
         velocity,
         liveKeyboard: liveKeyboard,
+        sustainLayer: sustainLayer,
       );
       final body = _woodBodyResonance(
         t,
         frequency,
         keyPosition,
         liveKeyboard: liveKeyboard,
+        sustainLayer: sustainLayer,
       );
 
-      final hammerLeft = liveKeyboard ? hammer * 0.9 : hammer * 0.58;
-      final hammerRight = liveKeyboard ? hammer * 0.78 : hammer * 0.48;
+      final hammerLeft = sustainLayer
+          ? hammer * 0.16
+          : liveKeyboard
+          ? hammer * 0.9
+          : hammer * 0.58;
+      final hammerRight = sustainLayer
+          ? hammer * 0.14
+          : liveKeyboard
+          ? hammer * 0.78
+          : hammer * 0.48;
       final leftRaw = ((left + body) * envelope + hammerLeft) * volume;
       final rightRaw = ((right + body) * envelope + hammerRight) * volume;
       normalizedSamples[i * _channels] = leftRaw;
@@ -625,7 +764,11 @@ class AudioService {
       }
     }
 
-    final targetPeak = liveKeyboard ? 0.82 : 0.8;
+    final targetPeak = sustainLayer
+        ? 0.48
+        : liveKeyboard
+        ? 0.82
+        : 0.8;
     final normalizeGain = peak <= 0 ? 1.0 : math.min(2.1, targetPeak / peak);
     for (var i = 0; i < totalSamples; i++) {
       final leftValue = _toInt16(
@@ -702,13 +845,18 @@ class AudioService {
     double frequency,
     double velocity, {
     bool liveKeyboard = false,
+    bool sustainLayer = false,
   }) {
-    final transient = math.exp(-t * (liveKeyboard ? 170.0 : 105.0));
+    final transient = math.exp(
+      -t * (sustainLayer ? 135.0 : liveKeyboard ? 170.0 : 105.0),
+    );
     final clickTone = math.sin(2 * math.pi * frequency * 7.0 * t);
     final woodyTap =
-        math.sin(2 * math.pi * 1900.0 * t) * (liveKeyboard ? 0.42 : 0.28);
-    final softNoise = _deterministicNoise(t) * (liveKeyboard ? 0.14 : 0.12);
-    final amount = liveKeyboard ? 0.24 : 0.12;
+        math.sin(2 * math.pi * 1900.0 * t) *
+        (sustainLayer ? 0.12 : liveKeyboard ? 0.42 : 0.28);
+    final softNoise = _deterministicNoise(t) *
+        (sustainLayer ? 0.05 : liveKeyboard ? 0.14 : 0.12);
+    final amount = sustainLayer ? 0.055 : liveKeyboard ? 0.24 : 0.12;
     return transient * velocity * amount * (clickTone + woodyTap + softNoise);
   }
 
@@ -717,11 +865,15 @@ class AudioService {
     double frequency,
     double keyPosition, {
     bool liveKeyboard = false,
+    bool sustainLayer = false,
   }) {
     // Subtle resonances give a small soundboard/body feeling.
     final bodyAmount =
-        (liveKeyboard ? 0.008 : 0.024) * (1.0 - keyPosition * 0.35);
-    final bodyDecay = math.exp(-t * (liveKeyboard ? 18.0 : 2.35));
+        (sustainLayer ? 0.014 : liveKeyboard ? 0.008 : 0.024) *
+        (1.0 - keyPosition * 0.35);
+    final bodyDecay = math.exp(
+      -t * (sustainLayer ? 1.55 : liveKeyboard ? 18.0 : 2.35),
+    );
     final body1 = math.sin(2 * math.pi * (frequency * 0.5) * t) * 0.55;
     final body2 = math.sin(2 * math.pi * (frequency * 1.5) * t) * 0.25;
     final body3 = math.sin(2 * math.pi * 176.0 * t) * 0.20;
@@ -789,7 +941,11 @@ class AudioService {
     _songDemoToken++;
     await stopAllNotes();
 
-    for (final source in _keyboardSoundByNote.values) {
+    for (final source in [
+      ..._keyboardSoundByNote.values,
+      ..._keyboardAttackSoundByNote.values,
+      ..._keyboardSustainSoundByNote.values,
+    ]) {
       try {
         await _soloud.disposeSource(source);
       } catch (error) {
@@ -797,6 +953,8 @@ class AudioService {
       }
     }
     _keyboardSoundByNote.clear();
+    _keyboardAttackSoundByNote.clear();
+    _keyboardSustainSoundByNote.clear();
     _keyboardSampleInfoByNote.clear();
 
     try {
@@ -808,6 +966,20 @@ class AudioService {
     _keyboardCacheReadyNotifier.dispose();
     await _effectsPlayer.dispose();
   }
+}
+
+class ActiveKeyboardVoice {
+  const ActiveKeyboardVoice({
+    required this.pressId,
+    required this.note,
+    required this.handle,
+    required this.startedAt,
+  });
+
+  final int pressId;
+  final String note;
+  final SoundHandle handle;
+  final DateTime startedAt;
 }
 
 class _GeneratedPianoWav {

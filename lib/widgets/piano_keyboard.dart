@@ -1,0 +1,219 @@
+import 'package:flutter/material.dart';
+
+/// A beginner-friendly one-octave piano keyboard.
+///
+/// It shows the real visual relationship between:
+/// - white keys: C D E F G A B High C
+/// - black keys: C# D# F# G# A#
+///
+/// For early piano education, this is important because children should learn
+/// that C is found just to the left of the group of two black keys.
+class PianoKeyboard extends StatelessWidget {
+  final bool showNoteNames;
+  final ValueChanged<String> onNotePressed;
+  final String? highlightedNote;
+
+  static const whiteNotes = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'High C'];
+  static const blackNotes = ['C#', 'D#', 'F#', 'G#', 'A#'];
+
+  /// Black key positions are measured as boundaries between white keys.
+  /// C# sits between C and D, D# between D and E, etc.
+  static const Map<String, double> blackKeyBoundaryPositions = {
+    'C#': 1,
+    'D#': 2,
+    'F#': 4,
+    'G#': 5,
+    'A#': 6,
+  };
+
+  const PianoKeyboard({
+    super.key,
+    required this.onNotePressed,
+    this.showNoteNames = true,
+    this.highlightedNote,
+  });
+
+  static String displayName(String note) {
+    if (note == 'High C') return 'C';
+    return note.replaceAll('#', '♯');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final keyWidth = constraints.maxWidth / whiteNotes.length;
+        final blackKeyWidth = keyWidth * 0.58;
+
+        return Container(
+          height: 220,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF34344A),
+            borderRadius: BorderRadius.circular(26),
+          ),
+          child: Stack(
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final note in whiteNotes)
+                    Expanded(
+                      child: _WhiteKey(
+                        note: note,
+                        showName: showNoteNames,
+                        isHighlighted: note == highlightedNote,
+                        onTap: () => onNotePressed(note),
+                      ),
+                    ),
+                ],
+              ),
+              for (final entry in blackKeyBoundaryPositions.entries)
+                Positioned(
+                  left: entry.value * keyWidth - blackKeyWidth / 2,
+                  top: 0,
+                  width: blackKeyWidth,
+                  height: 132,
+                  child: _BlackKey(
+                    note: entry.key,
+                    showName: showNoteNames,
+                    isHighlighted: entry.key == highlightedNote,
+                    onTap: () => onNotePressed(entry.key),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _WhiteKey extends StatelessWidget {
+  final String note;
+  final bool showName;
+  final bool isHighlighted;
+  final VoidCallback onTap;
+
+  const _WhiteKey({
+    required this.note,
+    required this.showName,
+    required this.isHighlighted,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 1.5),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          decoration: BoxDecoration(
+            gradient: isHighlighted
+                ? const LinearGradient(
+                    colors: [Color(0xFFFFF3B0), Color(0xFFFFD166)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  )
+                : const LinearGradient(
+                    colors: [Colors.white, Color(0xFFFFF8E8)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.black.withValues(alpha: 0.16)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isHighlighted ? 0.18 : 0.08),
+                blurRadius: isHighlighted ? 12 : 5,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Text(
+                showName ? PianoKeyboard.displayName(note) : '🎈',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: note == 'High C' ? 16 : 19,
+                  fontWeight: FontWeight.w900,
+                  color: const Color(0xFF34344A),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BlackKey extends StatelessWidget {
+  final String note;
+  final bool showName;
+  final bool isHighlighted;
+  final VoidCallback onTap;
+
+  const _BlackKey({
+    required this.note,
+    required this.showName,
+    required this.isHighlighted,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: isHighlighted
+                  ? const [Color(0xFF8EECF5), Color(0xFF4D96FF)]
+                  : const [Color(0xFF222233), Color(0xFF050510)],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+            borderRadius: const BorderRadius.vertical(
+              bottom: Radius.circular(14),
+              top: Radius.circular(9),
+            ),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 10,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Text(
+                showName ? PianoKeyboard.displayName(note) : '⭐',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

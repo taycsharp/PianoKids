@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -10,16 +9,20 @@ import 'package:flutter/services.dart';
 import '../models/song.dart';
 
 class _ActivePianoVoice {
-  _ActivePianoVoice({required this.id, required this.note});
+  _ActivePianoVoice({required this.pointerId, required this.note})
+      : pressedAt = DateTime.now();
 
-  final int id;
+  final int pointerId;
   final String note;
   final AudioPlayer player = AudioPlayer();
-  DateTime? playerStartedAt;
-  bool releaseRequested = false;
+  final DateTime pressedAt;
+  DateTime? releasedAt;
+  DateTime? startedAt;
+  bool isReleased = false;
+  bool isStopping = false;
   bool disposed = false;
 
-  bool get hasStarted => playerStartedAt != null;
+  bool get hasStarted => startedAt != null;
 }
 
 /// Audio service for Happy Piano Kids.
@@ -35,7 +38,8 @@ class _ActivePianoVoice {
 class AudioService {
   AudioService() {
     unawaited(_loadAssetManifest());
-    unawaited(_prepareKeyboardToneFileCache());
+    _keyboardToneCacheReady = _prepareKeyboardToneCache();
+    unawaited(_keyboardToneCacheReady);
   }
 
   final AudioPlayer _effectsPlayer = AudioPlayer();
@@ -43,7 +47,8 @@ class AudioService {
   final Map<String, Set<int>> _activePressIdsByNote = {};
   var _nextSyntheticPressId = 0;
   final Map<String, bool> _assetAvailabilityByNote = {};
-  final Map<String, Future<String>> _keyboardToneFilesByNote = {};
+  final Map<String, Uint8List> _keyboardToneBytesByNote = {};
+  late final Future<void> _keyboardToneCacheReady;
   var _songDemoToken = 0;
 
   static const double _demoTempoMultiplier = 1.0;
@@ -115,7 +120,7 @@ class AudioService {
     final debugNote = _debugNoteName(note);
     final existingVoice = _activeVoicesByPressId[pressId];
     if (existingVoice != null) {
-      if (existingVoice.note == note && !existingVoice.releaseRequested) {
+      if (existingVoice.note == note && !existingVoice.isReleased) {
         debugPrint('Press $pressId already active for $debugNote');
         return Future<void>.value();
       }
@@ -132,7 +137,7 @@ class AudioService {
       return Future<void>.value();
     }
 
-    final voice = _ActivePianoVoice(id: pressId, note: note);
+    final voice = _ActivePianoVoice(pointerId: pressId, note: note);
     _activeVoicesByPressId[pressId] = voice;
     _activePressIdsByNote.putIfAbsent(note, () => <int>{}).add(pressId);
 
@@ -140,7 +145,7 @@ class AudioService {
     // This preserves polyphony, allows quick re-taps, and prevents duplicate
     // starts from repeated down events for the same press id.
     debugPrint('Starting press $pressId $debugNote');
-    unawaited(_playKeyboardNote(voice, frequency));
+    unawaited(_playKeyboardNote(voice));
     return Future<void>.value();
   }
 
@@ -150,10 +155,11 @@ class AudioService {
     if (voice == null) return;
 
     final debugNote = _debugNoteName(voice.note);
-    voice.releaseRequested = true;
+    voice.isReleased = true;
+    voice.releasedAt = DateTime.now();
 
     if (!voice.hasStarted) {
-      debugPrint('Quick tap press $pressId $debugNote, delaying release');
+      debugPrint('Press released before player started: $debugNote');
       return;
     }
 
@@ -245,44 +251,24 @@ class AudioService {
   }
 
   Future<void> _prepareKeyboardToneFileCache() async {
-    for (final entry in _noteFrequencies.entries) {
-      _keyboardToneFilesByNote.putIfAbsent(
-        entry.key,
-        () => Future<String>(() => _writeGeneratedKeyboardToneFile(
-              note: entry.key,
-              frequency: entry.value,
-            )),
-      );
-    }
     try {
-      await Future.wait(_keyboardToneFilesByNote.values);
-      debugPrint('Generated tone cache ready');
+      // Yield out of the service constructor before doing the heavier WAV
+      // synthesis work, then keep the resulting bytes in memory for all
+      // keyboard presses.
+      await Future<void>.delayed(Duration.zero);
+
+      for (final entry in _noteFrequencies.entries) {
+        _keyboardToneBytesByNote[entry.key] = _buildWarmWoodPianoWav(
+          frequency: entry.value,
+          durationMs: _heldNoteGeneratedDurationMs,
+          volume: 0.52,
+          velocity: 0.72,
+        );
+      }
+      debugPrint('Tone cache ready for keyboard');
     } catch (error) {
       debugPrint('Generated tone cache skipped. Error: $error');
     }
-  }
-
-  Future<String> _writeGeneratedKeyboardToneFile({
-    required String note,
-    required double frequency,
-  }) async {
-    final file = File(
-      '${Directory.systemTemp.path}/happy_piano_keyboard_${_safeFileNoteName(note)}.wav',
-    );
-
-    if (await file.exists() && await file.length() > 44) {
-      return file.path;
-    }
-
-    final bytes = _buildWarmWoodPianoWav(
-      frequency: frequency,
-      durationMs: _heldNoteGeneratedDurationMs,
-      volume: 0.52,
-      velocity: 0.72,
-    );
-    debugPrint('Generated WAV bytes length: ${bytes.length}');
-    await file.writeAsBytes(bytes, flush: true);
-    return file.path;
   }
 
   Future<bool> _tryPlayAsset(
@@ -365,10 +351,7 @@ class AudioService {
     }
   }
 
-  Future<void> _playKeyboardNote(
-    _ActivePianoVoice voice,
-    double frequency,
-  ) async {
+  Future<void> _playKeyboardNote(_ActivePianoVoice voice) async {
     final note = voice.note;
     final debugNote = _debugNoteName(note);
     try {
@@ -382,58 +365,59 @@ class AudioService {
       }
 
       if (!playedAsset) {
-        debugPrint('Using generated note: $debugNote');
-        final toneFile = _keyboardToneFilesByNote.putIfAbsent(
-          note,
-          () => Future<String>(() => _writeGeneratedKeyboardToneFile(
-                note: note,
-                frequency: frequency,
-              )),
-        );
-        final filePath = await toneFile;
-        if (_activeVoicesByPressId[voice.id] != voice || voice.disposed) return;
+        await _keyboardToneCacheReady;
+        if (_activeVoicesByPressId[voice.pointerId] != voice || voice.disposed) {
+          await _disposeFailedVoice(voice);
+          return;
+        }
 
-        final bytesLength = await File(filePath).length();
-        debugPrint('Generated WAV bytes length: $bytesLength');
+        final bytes = _keyboardToneBytesByNote[note];
+        if (bytes == null) {
+          debugPrint('No cached sustain tone for $debugNote');
+          await _disposeFailedVoice(voice);
+          return;
+        }
+
+        debugPrint('Using cached sustain tone: $debugNote');
         await voice.player
-            .play(DeviceFileSource(filePath))
+            .play(BytesSource(bytes, mimeType: 'audio/wav'))
             .timeout(_audioStartTimeout);
       }
 
-      if (_activeVoicesByPressId[voice.id] != voice || voice.disposed) {
-        await voice.player.stop();
+      if (_activeVoicesByPressId[voice.pointerId] != voice || voice.disposed) {
+        await _disposeFailedVoice(voice);
         return;
       }
 
-      voice.playerStartedAt = DateTime.now();
-      debugPrint('Player started press ${voice.id} $debugNote');
+      voice.startedAt = DateTime.now();
+      debugPrint('Player started press ${voice.pointerId} $debugNote');
 
-      if (voice.releaseRequested) {
+      if (voice.isReleased) {
         await _stopAndDisposeVoice(voice);
       }
     } on TimeoutException {
       debugPrint('Generated piano tone start timed out for $debugNote.');
       await _disposeFailedVoice(voice);
     } catch (error) {
-      _keyboardToneFilesByNote.remove(note);
       debugPrint('Generated piano tone skipped for $debugNote. Error: $error');
       await _disposeFailedVoice(voice);
     }
   }
 
   Future<void> _stopAndDisposeVoice(_ActivePianoVoice voice) async {
-    if (voice.disposed) return;
+    if (voice.disposed || voice.isStopping) return;
+    voice.isStopping = true;
 
     final note = voice.note;
     final debugNote = _debugNoteName(note);
-    final playerStartedAt = voice.playerStartedAt;
-    if (playerStartedAt != null) {
+    final startedAt = voice.startedAt;
+    if (startedAt != null) {
       final playingFor = DateTime.now()
-          .difference(playerStartedAt)
+          .difference(startedAt)
           .inMilliseconds;
       final remainingMs = _minimumAudibleNoteMs - playingFor;
       if (remainingMs > 0) {
-        debugPrint('Quick tap $debugNote, delaying release');
+        debugPrint('Minimum tap release scheduled: $debugNote');
         await Future<void>.delayed(Duration(milliseconds: remainingMs));
       }
     }
@@ -442,7 +426,7 @@ class AudioService {
     voice.disposed = true;
 
     try {
-      debugPrint('Stopping note $debugNote');
+      debugPrint('Stopped press ${voice.pointerId} $debugNote');
       await voice.player.stop();
     } catch (error) {
       debugPrint('Piano note stop skipped for $debugNote. Error: $error');
@@ -456,27 +440,34 @@ class AudioService {
   }
 
   Future<void> _disposeFailedVoice(_ActivePianoVoice voice) async {
+    if (voice.disposed) return;
     _removeActiveVoice(voice);
     voice.disposed = true;
     try {
-      await voice.player.dispose();
+      await voice.player.stop();
     } catch (_) {
       // Audio cleanup should never break the app.
+    } finally {
+      try {
+        await voice.player.dispose();
+      } catch (_) {
+        // Audio cleanup should never break the app.
+      }
     }
   }
 
   void _removeActiveVoice(_ActivePianoVoice voice) {
-    final currentVoice = _activeVoicesByPressId[voice.id];
+    final currentVoice = _activeVoicesByPressId[voice.pointerId];
     final voiceStillRegistered = currentVoice == voice;
     if (voiceStillRegistered) {
-      _activeVoicesByPressId.remove(voice.id);
+      _activeVoicesByPressId.remove(voice.pointerId);
     }
 
     // If the platform ever reuses a pointer id before an older voice finishes
     // its quick-tap release, do not remove the newer voice's note lookup.
     if (voiceStillRegistered || currentVoice?.note != voice.note) {
       final pressIdsForNote = _activePressIdsByNote[voice.note];
-      pressIdsForNote?.remove(voice.id);
+      pressIdsForNote?.remove(voice.pointerId);
       if (pressIdsForNote != null && pressIdsForNote.isEmpty) {
         _activePressIdsByNote.remove(voice.note);
       }
@@ -511,11 +502,6 @@ class AudioService {
       // Audio should never block the child from using the app.
       debugPrint('Generated piano tone skipped. Error: $error');
     }
-  }
-
-  String _safeFileNoteName(String note) {
-    if (note == 'High C') return 'high_c';
-    return note.toLowerCase().replaceAll('#', '_sharp');
   }
 
   String _debugNoteName(String note) {

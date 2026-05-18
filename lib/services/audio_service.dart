@@ -42,7 +42,7 @@ class AudioService {
 
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
-  static const int _keyboardNoteDurationMs = 200;
+  static const int _keyboardNoteDurationMs = 500;
   static const bool _keyboardDebugLogs = false;
   static const bool _useDiagnosticClickTone = false;
   static const Duration _audioStartTimeout = Duration(milliseconds: 900);

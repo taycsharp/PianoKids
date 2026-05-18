@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_soloud/flutter_soloud.dart';
 
 import '../models/song.dart';
 
@@ -21,22 +20,20 @@ import '../models/song.dart';
 /// wood-piano-like tone designed for a kid-friendly MVP.
 class AudioService {
   AudioService() {
-    _keyboardAudioReady = _prepareKeyboardAudioEngine();
-    unawaited(_keyboardAudioReady);
+    unawaited(_prepareVisibleKeyboardNotes());
   }
 
   final AudioPlayer _effectsPlayer = AudioPlayer();
   final Map<String, bool> _assetAvailabilityByNote = {};
-  final Map<String, AudioSource> _keyboardSourcesByNote = {};
-  late final Future<void> _keyboardAudioReady;
-  bool _isKeyboardAudioReady = false;
+  final Map<String, Uint8List> _generatedKeyboardBytesByNote = {};
+  final Set<int> _activeKeyboardVoiceIds = {};
   var _songDemoToken = 0;
+  var _nextKeyboardVoiceId = 0;
 
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
-  static const int _keyboardNoteDurationMs = 1600;
+  static const int _keyboardNoteDurationMs = 1100;
   static const Duration _audioStartTimeout = Duration(milliseconds: 900);
-  static const Duration _soloudLoadTimeout = Duration(seconds: 8);
 
   static const int _sampleRate = 44100;
   static const int _channels = 2;
@@ -82,32 +79,32 @@ class AudioService {
 
   /// Plays one short, naturally decaying keyboard note.
   ///
-  /// This is intentionally fire-and-forget for the live keyboard MVP: every
-  /// call asks SoLoud to start a new voice from a preloaded source, so chords
-  /// and repeated taps never wait for or stop older voices.
+  /// Each request creates an independent short-lived player/voice. There is no
+  /// shared keyboard player, current note, start lock, or stop-on-release path,
+  /// so chords and repeated taps do not wait for older notes to finish.
   void playKeyboardNote(String note) {
     final debugNote = _debugNoteName(note);
-    if (!_isKeyboardAudioReady || !SoLoud.instance.isInitialized) {
-      debugPrint('Keyboard tone cache not ready for $debugNote');
+    debugPrint('Audio requested: $debugNote');
+
+    final frequency = _noteFrequencies[note];
+    if (frequency == null) {
+      debugPrint('Keyboard note skipped: $debugNote has no visible-key frequency');
       return;
     }
 
-    final source = _keyboardSourcesByNote[note];
-    if (source == null) {
-      debugPrint('No preloaded keyboard source for $debugNote');
-      return;
+    if (_activeKeyboardVoiceIds.isNotEmpty) {
+      debugPrint(
+        'Another keyboard note is already playing; starting $debugNote independently',
+      );
     }
 
-    try {
-      if (_assetAvailabilityByNote[note] == true) {
-        debugPrint('Using preloaded asset note: $debugNote');
-      } else {
-        debugPrint('Using preloaded generated note: $debugNote');
-      }
-      SoLoud.instance.play(source, volume: 0.78);
-    } catch (error) {
-      debugPrint('Keyboard piano note skipped for $debugNote. Error: $error');
-    }
+    final voiceId = ++_nextKeyboardVoiceId;
+    unawaited(_playKeyboardVoice(
+      note: note,
+      debugNote: debugNote,
+      frequency: frequency,
+      voiceId: voiceId,
+    ));
   }
 
   /// Legacy API for non-keyboard callers. It now uses the same fire-and-forget
@@ -180,7 +177,7 @@ class AudioService {
   }
 
   Future<void> stopAllNotes() async {
-    // Live keyboard notes are short, fire-and-forget SoLoud voices that decay
+    // Live keyboard notes are short, fire-and-forget independent player voices that decay
     // naturally. There is no held-key keyboard voice lifecycle to stop.
   }
 
@@ -206,59 +203,108 @@ class AudioService {
     }
   }
 
-  Future<void> _prepareKeyboardAudioEngine() async {
+  Future<void> _prepareVisibleKeyboardNotes() async {
     try {
-      // Yield out of the service constructor before doing native engine startup
-      // and the heavier WAV synthesis work. After this future completes, a
-      // key press only asks SoLoud to play an already-loaded AudioSource.
+      // Only prepare the notes that are visible on the beginner keyboard. This
+      // keeps startup simple while avoiding first-tap WAV generation for the
+      // real notes kids can currently play.
       await Future<void>.delayed(Duration.zero);
       await _loadAssetManifest();
 
-      final soloud = SoLoud.instance;
-      if (!soloud.isInitialized) {
-        await soloud.init().timeout(_soloudLoadTimeout);
-      }
-      soloud.setMaxActiveVoiceCount(32);
-
       for (final entry in _noteFrequencies.entries) {
         final note = entry.key;
-        final debugNote = _debugNoteName(note);
-        final assetPath = _noteFiles[note];
-        AudioSource? source;
-
-        if (assetPath != null && _assetAvailabilityByNote[note] == true) {
-          try {
-            source = await soloud
-                .loadAsset('assets/$assetPath')
-                .timeout(_soloudLoadTimeout);
-          } catch (error) {
-            _assetAvailabilityByNote[note] = false;
-            debugPrint(
-              'Asset unavailable, using generated keyboard tone: $debugNote',
-            );
-          }
-        }
-
-        if (source == null) {
-          final bytes = _buildWarmWoodPianoWav(
-            frequency: entry.value,
-            durationMs: _keyboardNoteDurationMs,
-            volume: 0.52,
-            velocity: 0.72,
-          );
-          source = await soloud
-              .loadMem(_keyboardToneFileName(note), bytes)
-              .timeout(_soloudLoadTimeout);
-        }
-
-        _keyboardSourcesByNote[note] = source;
+        if (_assetAvailabilityByNote[note] == true) continue;
+        _generatedKeyboardBytesByNote[note] = _buildWarmWoodPianoWav(
+          frequency: entry.value,
+          durationMs: _keyboardNoteDurationMs,
+          volume: 0.52,
+          velocity: 0.72,
+        );
       }
 
-      _isKeyboardAudioReady = true;
-      debugPrint('Tone cache ready for keyboard');
+      debugPrint('Visible keyboard tones ready (${_noteFrequencies.length} notes)');
     } catch (error) {
-      _isKeyboardAudioReady = false;
-      debugPrint('Keyboard audio engine unavailable. Error: $error');
+      // If background preparation fails, individual key presses still lazily
+      // build their own generated note instead of blocking the keyboard.
+      debugPrint('Visible keyboard tone preparation skipped. Error: $error');
+    }
+  }
+
+  Future<void> _playKeyboardVoice({
+    required String note,
+    required String debugNote,
+    required double frequency,
+    required int voiceId,
+  }) async {
+    final player = AudioPlayer(playerId: 'keyboard_voice_$voiceId');
+    _activeKeyboardVoiceIds.add(voiceId);
+
+    var started = false;
+    try {
+      await player.setReleaseMode(ReleaseMode.stop);
+      await player.setPlayerMode(PlayerMode.lowLatency);
+
+      final assetPath = _noteFiles[note];
+      if (assetPath != null && _assetAvailabilityByNote[note] == true) {
+        try {
+          await player
+              .play(AssetSource(assetPath), volume: 0.78)
+              .timeout(_audioStartTimeout);
+          started = true;
+          debugPrint('Audio started: $debugNote voice $voiceId (asset)');
+          return;
+        } catch (error) {
+          _assetAvailabilityByNote[note] = false;
+          debugPrint(
+            'Keyboard asset skipped for $debugNote voice $voiceId; falling back to generated tone. Error: $error',
+          );
+        }
+      }
+
+      final bytes = _generatedKeyboardBytesByNote.putIfAbsent(
+        note,
+        () => _buildWarmWoodPianoWav(
+          frequency: frequency,
+          durationMs: _keyboardNoteDurationMs,
+          volume: 0.52,
+          velocity: 0.72,
+        ),
+      );
+
+      await player
+          .play(BytesSource(bytes, mimeType: 'audio/wav'), volume: 0.78)
+          .timeout(_audioStartTimeout);
+      started = true;
+      debugPrint('Audio started: $debugNote voice $voiceId (generated)');
+    } catch (error) {
+      debugPrint(
+        'Keyboard note skipped: $debugNote voice $voiceId could not start. Error: $error',
+      );
+    } finally {
+      unawaited(_disposeKeyboardVoice(
+        player: player,
+        voiceId: voiceId,
+        waitForDecay: started,
+      ));
+    }
+  }
+
+  Future<void> _disposeKeyboardVoice({
+    required AudioPlayer player,
+    required int voiceId,
+    required bool waitForDecay,
+  }) async {
+    try {
+      if (waitForDecay) {
+        await Future<void>.delayed(
+          const Duration(milliseconds: _keyboardNoteDurationMs + 150),
+        );
+      }
+      await player.dispose();
+    } catch (_) {
+      // Audio cleanup should never interrupt keyboard input.
+    } finally {
+      _activeKeyboardVoiceIds.remove(voiceId);
     }
   }
 
@@ -570,14 +616,8 @@ class AudioService {
   Future<void> dispose() async {
     _songDemoToken++;
     await stopAllNotes();
-    for (final source in _keyboardSourcesByNote.values) {
-      try {
-        await SoLoud.instance.disposeSource(source);
-      } catch (_) {
-        // Audio cleanup should never break the app.
-      }
-    }
-    _keyboardSourcesByNote.clear();
+    _generatedKeyboardBytesByNote.clear();
+    _activeKeyboardVoiceIds.clear();
     await _effectsPlayer.dispose();
   }
 }

@@ -272,24 +272,34 @@ class _PressablePianoKeyState extends State<_PressablePianoKey> {
   int? _activePressId;
 
   void _handleDown(PointerDownEvent event) {
+    final debugNote = _debugNoteName(widget.note);
     final wasIdle = _activePointers.isEmpty;
     _activePointers.add(event.pointer);
     if (wasIdle) {
       _activePressId = event.pointer;
-      debugPrint(
-        'Pointer ${event.pointer} down ${_debugNoteName(widget.note)}',
-      );
+      debugPrint('Pointer down: ${event.pointer} $debugNote');
       widget.onStart(event.pointer);
+    } else {
+      debugPrint(
+        'Pointer down skipped: ${event.pointer} $debugNote is already held by another pointer',
+      );
     }
   }
 
   void _handleEnd(int pointer) {
-    if (!_activePointers.remove(pointer)) return;
+    final debugNote = _debugNoteName(widget.note);
+    if (!_activePointers.remove(pointer)) {
+      debugPrint('Pointer up skipped: $pointer $debugNote was not active');
+      return;
+    }
     if (_activePointers.isEmpty) {
       final pressId = _activePressId;
       _activePressId = null;
-      if (pressId == null) return;
-      debugPrint('Pointer $pressId up ${_debugNoteName(widget.note)}');
+      if (pressId == null) {
+        debugPrint('Pointer up skipped: $pointer $debugNote had no active press id');
+        return;
+      }
+      debugPrint('Pointer up: $pressId $debugNote');
       widget.onStop(pressId);
     }
   }

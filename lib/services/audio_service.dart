@@ -9,6 +9,43 @@ import 'package:flutter/services.dart';
 
 import '../models/song.dart';
 
+class _ActivePianoVoice {
+  _ActivePianoVoice({required this.note});
+
+  final String note;
+  final DateTime startedAt = DateTime.now();
+  final AudioPlayer tapPlayer = AudioPlayer();
+  final AudioPlayer sustainPlayer = AudioPlayer();
+  Timer? sustainTimer;
+  bool released = false;
+  bool sustainStarted = false;
+
+  Future<void> disposeAfterTapFinishes() async {
+    final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
+    final startupGraceMs = AudioService._audioStartTimeout.inMilliseconds +
+        AudioService._tapToneDurationMs;
+    final remainingTapMs = math.max(0, startupGraceMs - elapsed);
+    final remainingMinimumMs =
+        math.max(0, AudioService._minimumAudibleNoteMs - elapsed);
+    final delayMs = math.max(remainingTapMs, remainingMinimumMs);
+    if (delayMs > 0) {
+      await Future<void>.delayed(Duration(milliseconds: delayMs));
+    }
+
+    try {
+      await tapPlayer.dispose();
+    } catch (_) {
+      // Audio cleanup should never break the app.
+    }
+
+    try {
+      await sustainPlayer.dispose();
+    } catch (_) {
+      // Audio cleanup should never break the app.
+    }
+  }
+}
+
 /// Audio service for Happy Piano Kids.
 ///
 /// Audio strategy:
@@ -22,19 +59,22 @@ import '../models/song.dart';
 class AudioService {
   AudioService() {
     unawaited(_loadAssetManifest());
-    _prepareKeyboardGeneratedToneFiles();
+    _prepareKeyboardTapToneCache();
   }
 
   final AudioPlayer _effectsPlayer = AudioPlayer();
-  final Map<String, AudioPlayer> _activeVoices = {};
+  final Map<String, _ActivePianoVoice> _activeVoices = {};
   final Map<String, bool> _assetAvailabilityByNote = {};
-  final Map<String, Future<String>> _generatedKeyboardToneFilesByNote = {};
+  final Map<String, Uint8List> _tapToneCache = {};
+  final Map<String, Future<String>> _sustainToneFilesByNote = {};
   var _songDemoToken = 0;
 
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
+  static const int _tapToneDurationMs = 220;
+  static const int _minimumAudibleNoteMs = 150;
   static const int _heldNoteGeneratedDurationMs = 8000;
-  static const Duration _audioStartTimeout = Duration(seconds: 3);
+  static const Duration _audioStartTimeout = Duration(milliseconds: 900);
 
   static const int _sampleRate = 44100;
   static const int _channels = 2;
@@ -80,48 +120,62 @@ class AudioService {
     await stopNote(note);
   }
 
-  Future<void> startNote(String note) async {
+  Future<void> startNote(String note) {
     final debugNote = _debugNoteName(note);
-    if (_activeVoices.containsKey(note)) return;
+    if (_activeVoices.containsKey(note)) return Future<void>.value();
 
     final frequency = _noteFrequencies[note];
     if (frequency == null) {
       debugPrint('No generated frequency for note: $debugNote');
-      return;
+      return Future<void>.value();
     }
 
-    final voice = AudioPlayer();
+    final voice = _ActivePianoVoice(note: note);
     _activeVoices[note] = voice;
 
-    final assetPath = _noteFiles[note];
-    if (assetPath != null && _assetAvailabilityByNote[note] == true) {
-      debugPrint('Using bundled asset note: $debugNote');
-      final playedAsset = await _tryPlayAsset(voice, note, assetPath);
-      if (playedAsset) return;
-    } else if (assetPath != null) {
-      debugPrint('Asset unavailable, skipping asset attempt: $debugNote');
-    }
-
+    // Keyboard playback intentionally starts with a tiny cached generated attack.
+    // This avoids missing-asset checks, large WAV generation, and slow sustain
+    // startup on the pointer-down path, so even fast child taps are audible.
     debugPrint('Using generated note: $debugNote');
     debugPrint('Starting generated note $debugNote');
-    await _playGeneratedKeyboardTone(
-      player: voice,
-      note: note,
-      frequency: frequency,
+    debugPrint('Using cached tap tone: $debugNote');
+    unawaited(_playGeneratedTapTone(voice, frequency));
+
+    voice.sustainTimer = Timer(
+      const Duration(milliseconds: _minimumAudibleNoteMs),
+      () {
+        if (_activeVoices[note] != voice || voice.released) return;
+        unawaited(_playGeneratedSustainTone(voice, frequency));
+      },
     );
+    return Future<void>.value();
   }
 
   Future<void> stopNote(String note) async {
-    debugPrint('Stopping note ${_debugNoteName(note)}');
+    final debugNote = _debugNoteName(note);
+    debugPrint('Stopping note $debugNote');
     final voice = _activeVoices.remove(note);
     if (voice == null) return;
 
+    voice.released = true;
+    voice.sustainTimer?.cancel();
+
+    final heldFor = DateTime.now().difference(voice.startedAt);
+    if (heldFor.inMilliseconds < _minimumAudibleNoteMs) {
+      debugPrint(
+        'Quick tap detected: $debugNote, allowing minimum note duration',
+      );
+    }
+
     try {
-      await voice.stop();
+      if (voice.sustainStarted) {
+        await voice.sustainPlayer.stop();
+        debugPrint('Sustain stopped: $debugNote');
+      }
     } catch (error) {
-      debugPrint('Piano note stop skipped for $note. Error: $error');
+      debugPrint('Piano sustain stop skipped for $debugNote. Error: $error');
     } finally {
-      await voice.dispose();
+      unawaited(voice.disposeAfterTapFinishes());
     }
   }
 
@@ -191,39 +245,41 @@ class AudioService {
             availableAssets.contains(bundledPath);
       }
     } catch (error) {
-      debugPrint('Asset manifest unavailable. Using generated piano tones. Error: $error');
+      debugPrint(
+        'Asset manifest unavailable. Using generated piano tones. Error: $error',
+      );
       for (final note in _noteFiles.keys) {
         _assetAvailabilityByNote[note] = false;
       }
     }
   }
 
-  void _prepareKeyboardGeneratedToneFiles() {
+  void _prepareKeyboardTapToneCache() {
     for (final entry in _noteFrequencies.entries) {
-      _generatedKeyboardToneFilesByNote[entry.key] = Future<String>.delayed(
-        Duration.zero,
-        () => _writeGeneratedKeyboardToneFile(
-          note: entry.key,
-          frequency: entry.value,
-        ),
+      _tapToneCache[entry.key] = _buildWarmWoodPianoWav(
+        frequency: entry.value,
+        durationMs: _tapToneDurationMs,
+        volume: 0.58,
+        velocity: 0.78,
       );
     }
+    debugPrint('Generated tone cache ready');
   }
 
-  Future<String> _writeGeneratedKeyboardToneFile({
+  Future<String> _writeGeneratedKeyboardSustainFile({
     required String note,
     required double frequency,
   }) async {
     final bytes = _buildWarmWoodPianoWav(
       frequency: frequency,
       durationMs: _heldNoteGeneratedDurationMs,
-      volume: 0.58,
-      velocity: 0.72,
+      volume: 0.50,
+      velocity: 0.66,
     );
     debugPrint('Generated WAV bytes length: ${bytes.length}');
 
     final file = File(
-      '${Directory.systemTemp.path}/happy_piano_${_safeFileNoteName(note)}.wav',
+      '${Directory.systemTemp.path}/happy_piano_sustain_${_safeFileNoteName(note)}.wav',
     );
 
     if (await file.exists() && await file.length() == bytes.length) {
@@ -234,7 +290,11 @@ class AudioService {
     return file.path;
   }
 
-  Future<bool> _tryPlayAsset(AudioPlayer player, String note, String assetPath) async {
+  Future<bool> _tryPlayAsset(
+    AudioPlayer player,
+    String note,
+    String assetPath,
+  ) async {
     try {
       await player.play(AssetSource(assetPath));
       return true;
@@ -308,33 +368,65 @@ class AudioService {
     }
   }
 
-  Future<void> _playGeneratedKeyboardTone({
-    required AudioPlayer player,
-    required String note,
-    required double frequency,
-  }) async {
+  Future<void> _playGeneratedTapTone(
+    _ActivePianoVoice voice,
+    double frequency,
+  ) async {
+    final note = voice.note;
     final debugNote = _debugNoteName(note);
     try {
-      await player.stop();
-      await player.setReleaseMode(ReleaseMode.stop);
+      await voice.tapPlayer.setReleaseMode(ReleaseMode.stop);
+      final bytes = _tapToneCache[note] ??
+          _buildWarmWoodPianoWav(
+            frequency: frequency,
+            durationMs: _tapToneDurationMs,
+            volume: 0.58,
+            velocity: 0.78,
+          );
+      debugPrint('Generated WAV bytes length: ${bytes.length}');
+      await voice.tapPlayer
+          .play(BytesSource(bytes, mimeType: 'audio/wav'))
+          .timeout(_audioStartTimeout);
+      debugPrint('Player started $debugNote');
+    } on TimeoutException {
+      debugPrint('Generated tap tone start timed out for $debugNote.');
+    } catch (error) {
+      debugPrint('Generated tap tone skipped for $debugNote. Error: $error');
+    }
+  }
 
-      final toneFile = _generatedKeyboardToneFilesByNote.putIfAbsent(
+  Future<void> _playGeneratedSustainTone(
+    _ActivePianoVoice voice,
+    double frequency,
+  ) async {
+    final note = voice.note;
+    final debugNote = _debugNoteName(note);
+    try {
+      await voice.sustainPlayer.setReleaseMode(ReleaseMode.stop);
+
+      final toneFile = _sustainToneFilesByNote.putIfAbsent(
         note,
-        () => _writeGeneratedKeyboardToneFile(note: note, frequency: frequency),
+        () => _writeGeneratedKeyboardSustainFile(
+          note: note,
+          frequency: frequency,
+        ),
       );
       final filePath = await toneFile;
-      if (_activeVoices[note] != player) return;
+      if (_activeVoices[note] != voice || voice.released) return;
 
       final bytesLength = await File(filePath).length();
       debugPrint('Generated WAV bytes length: $bytesLength');
-      await player.play(DeviceFileSource(filePath)).timeout(_audioStartTimeout);
-      if (_activeVoices[note] == player) {
-        debugPrint('Player started $debugNote');
+      await voice.sustainPlayer
+          .play(DeviceFileSource(filePath))
+          .timeout(_audioStartTimeout);
+      if (_activeVoices[note] == voice && !voice.released) {
+        voice.sustainStarted = true;
+        debugPrint('Sustain started: $debugNote');
       }
     } on TimeoutException {
       debugPrint('Generated piano tone start timed out for $debugNote.');
     } catch (error) {
-      _generatedKeyboardToneFilesByNote.remove(note);
+      _sustainToneFilesByNote.remove(note);
       debugPrint('Generated piano tone skipped for $debugNote. Error: $error');
     }
   }

@@ -20,15 +20,24 @@ import '../models/song.dart';
 /// wood-piano-like tone designed for a kid-friendly MVP.
 class AudioService {
   AudioService() {
-    unawaited(_prepareVisibleKeyboardNotes());
+    _keyboardPlayers = List.generate(
+      _keyboardPlayerPoolSize,
+      (index) => _KeyboardPooledPlayer(
+        index: index,
+        player: AudioPlayer(playerId: 'keyboard_pool_$index'),
+      ),
+    );
+    unawaited(_initializeKeyboardAudio());
   }
 
   final AudioPlayer _effectsPlayer = AudioPlayer();
+  late final List<_KeyboardPooledPlayer> _keyboardPlayers;
   final Map<String, bool> _assetAvailabilityByNote = {};
   final Map<String, Uint8List> _generatedKeyboardBytesByNote = {};
-  final Set<int> _activeKeyboardVoiceIds = {};
   var _songDemoToken = 0;
-  var _nextKeyboardVoiceId = 0;
+  var _nextKeyboardPoolIndex = 0;
+
+  static const int _keyboardPlayerPoolSize = 24;
 
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
@@ -79,31 +88,47 @@ class AudioService {
 
   /// Plays one short, naturally decaying keyboard note.
   ///
-  /// Each request creates an independent short-lived player/voice. There is no
-  /// shared keyboard player, current note, start lock, or stop-on-release path,
-  /// so chords and repeated taps do not wait for older notes to finish.
+  /// Live keyboard playback uses a fixed warm player pool. Key presses never
+  /// allocate or configure a native player, so held notes, chords, and repeated
+  /// taps can start independently and decay naturally.
   void playKeyboardNote(String note) {
+    final requestedAt = DateTime.now();
     final debugNote = _debugNoteName(note);
-    debugPrint('Audio requested: $debugNote');
+    debugPrint('Keyboard note requested: $debugNote');
 
-    final frequency = _noteFrequencies[note];
-    if (frequency == null) {
+    if (!_noteFrequencies.containsKey(note)) {
       debugPrint('Keyboard note skipped: $debugNote has no visible-key frequency');
       return;
     }
 
-    if (_activeKeyboardVoiceIds.isNotEmpty) {
-      debugPrint(
-        'Another keyboard note is already playing; starting $debugNote independently',
-      );
+    final playerSlot = _selectKeyboardPlayer(debugNote);
+    if (playerSlot == null) {
+      debugPrint('Keyboard note skipped: $debugNote has no ready pooled player');
+      return;
     }
 
-    final voiceId = ++_nextKeyboardVoiceId;
-    unawaited(_playKeyboardVoice(
+    final assetPath = _noteFiles[note];
+    final generatedBytes = _generatedKeyboardBytesByNote[note];
+    if (assetPath == null && generatedBytes == null) {
+      debugPrint('Keyboard note skipped: $debugNote has no cached audio source');
+      _releaseKeyboardPlayer(playerSlot);
+      return;
+    }
+
+    final elapsedMs = DateTime.now().difference(requestedAt).inMilliseconds;
+    final reuseMode = playerSlot.wasStolenForLastUse ? 'stolen' : 'reused';
+    debugPrint(
+      'Using pooled player index: ${playerSlot.index} for $debugNote '
+      '($reuseMode, ${elapsedMs}ms from pointer down to play call)',
+    );
+
+    unawaited(_playKeyboardPooledNote(
       note: note,
       debugNote: debugNote,
-      frequency: frequency,
-      voiceId: voiceId,
+      assetPath: assetPath,
+      generatedBytes: generatedBytes,
+      playerSlot: playerSlot,
+      playGeneration: playerSlot.playGeneration,
     ));
   }
 
@@ -177,8 +202,34 @@ class AudioService {
   }
 
   Future<void> stopAllNotes() async {
-    // Live keyboard notes are short, fire-and-forget independent player voices that decay
-    // naturally. There is no held-key keyboard voice lifecycle to stop.
+    // Live keyboard notes decay naturally and are not stopped by pointer-up.
+    // Song demos still use their own short-lived players, so there is no global
+    // keyboard stop lifecycle to run here.
+  }
+
+  Future<void> _initializeKeyboardAudio() async {
+    await Future.wait<void>([
+      _prepareKeyboardPlayerPool(),
+      _prepareVisibleKeyboardNotes(),
+    ]);
+  }
+
+  Future<void> _prepareKeyboardPlayerPool() async {
+    for (final playerSlot in _keyboardPlayers) {
+      try {
+        await playerSlot.player.setReleaseMode(ReleaseMode.stop);
+        await playerSlot.player.setPlayerMode(PlayerMode.lowLatency);
+        playerSlot.isReady = true;
+      } catch (error) {
+        playerSlot.isReady = false;
+        debugPrint(
+          'Keyboard pooled player ${playerSlot.index} setup skipped. Error: $error',
+        );
+      }
+    }
+
+    final readyCount = _keyboardPlayers.where((slot) => slot.isReady).length;
+    debugPrint('Keyboard player pool ready: $readyCount players');
   }
 
   Future<void> _loadAssetManifest() async {
@@ -206,15 +257,12 @@ class AudioService {
   Future<void> _prepareVisibleKeyboardNotes() async {
     try {
       // Only prepare the notes that are visible on the beginner keyboard. This
-      // keeps startup simple while avoiding first-tap WAV generation for the
-      // real notes kids can currently play.
+      // keeps startup simple while ensuring key presses never generate WAV bytes.
       await Future<void>.delayed(Duration.zero);
       await _loadAssetManifest();
 
       for (final entry in _noteFrequencies.entries) {
-        final note = entry.key;
-        if (_assetAvailabilityByNote[note] == true) continue;
-        _generatedKeyboardBytesByNote[note] = _buildWarmWoodPianoWav(
+        _generatedKeyboardBytesByNote[entry.key] = _buildWarmWoodPianoWav(
           frequency: entry.value,
           durationMs: _keyboardNoteDurationMs,
           volume: 0.52,
@@ -222,76 +270,120 @@ class AudioService {
         );
       }
 
-      debugPrint('Visible keyboard tones ready (${_noteFrequencies.length} notes)');
+      debugPrint(
+        'Visible keyboard tones ready (${_noteFrequencies.length} notes)',
+      );
     } catch (error) {
-      // If background preparation fails, individual key presses still lazily
-      // build their own generated note instead of blocking the keyboard.
       debugPrint('Visible keyboard tone preparation skipped. Error: $error');
     }
   }
 
-  Future<void> _playKeyboardVoice({
+  _KeyboardPooledPlayer? _selectKeyboardPlayer(String debugNote) {
+    final readyPlayers = _keyboardPlayers.where((slot) => slot.isReady).toList();
+    if (readyPlayers.isEmpty) return null;
+
+    for (var checked = 0; checked < _keyboardPlayers.length; checked++) {
+      final index = (_nextKeyboardPoolIndex + checked) % _keyboardPlayers.length;
+      final playerSlot = _keyboardPlayers[index];
+      if (!playerSlot.isReady || playerSlot.isBusy) continue;
+
+      _nextKeyboardPoolIndex = (index + 1) % _keyboardPlayers.length;
+      playerSlot
+        ..isBusy = true
+        ..wasStolenForLastUse = false
+        ..lastStartedAt = DateTime.now()
+        ..playGeneration++;
+      return playerSlot;
+    }
+
+    final oldestPlayer = readyPlayers.reduce((oldest, candidate) {
+      final oldestStartedAt =
+          oldest.lastStartedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final candidateStartedAt =
+          candidate.lastStartedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return candidateStartedAt.isBefore(oldestStartedAt) ? candidate : oldest;
+    });
+
+    oldestPlayer
+      ..isBusy = true
+      ..wasStolenForLastUse = true
+      ..lastStartedAt = DateTime.now()
+      ..playGeneration++;
+    _nextKeyboardPoolIndex = (oldestPlayer.index + 1) % _keyboardPlayers.length;
+    debugPrint(
+      'Reusing oldest player index: ${oldestPlayer.index} for $debugNote',
+    );
+    return oldestPlayer;
+  }
+
+  Future<void> _playKeyboardPooledNote({
     required String note,
     required String debugNote,
-    required double frequency,
-    required int voiceId,
+    required String? assetPath,
+    required Uint8List? generatedBytes,
+    required _KeyboardPooledPlayer playerSlot,
+    required int playGeneration,
   }) async {
-    final player = AudioPlayer(playerId: 'keyboard_voice_$voiceId');
-    _activeKeyboardVoiceIds.add(voiceId);
-
     var started = false;
+    final wasStolen = playerSlot.wasStolenForLastUse;
+    final player = playerSlot.player;
     try {
-      await player.setReleaseMode(ReleaseMode.stop);
-      await player.setPlayerMode(PlayerMode.lowLatency);
-
-      final assetPath = _noteFiles[note];
       if (assetPath != null && _assetAvailabilityByNote[note] == true) {
         try {
+          if (wasStolen) await player.stop();
           await player
               .play(AssetSource(assetPath), volume: 0.78)
               .timeout(_audioStartTimeout);
+          if (playerSlot.playGeneration != playGeneration) return;
           started = true;
-          debugPrint('Audio started: $debugNote voice $voiceId (asset)');
+          debugPrint(
+            'Audio started: $debugNote poolIndex=${playerSlot.index} (asset)',
+          );
           return;
         } catch (error) {
           _assetAvailabilityByNote[note] = false;
           debugPrint(
-            'Keyboard asset skipped for $debugNote voice $voiceId; falling back to generated tone. Error: $error',
+            'Keyboard asset skipped for $debugNote poolIndex=${playerSlot.index}; falling back to cached generated tone. Error: $error',
           );
         }
       }
 
-      final bytes = _generatedKeyboardBytesByNote.putIfAbsent(
-        note,
-        () => _buildWarmWoodPianoWav(
-          frequency: frequency,
-          durationMs: _keyboardNoteDurationMs,
-          volume: 0.52,
-          velocity: 0.72,
-        ),
-      );
+      if (generatedBytes == null) {
+        debugPrint(
+          'Keyboard note skipped: $debugNote poolIndex=${playerSlot.index} has no cached generated bytes',
+        );
+        return;
+      }
 
+      if (wasStolen) await player.stop();
       await player
-          .play(BytesSource(bytes, mimeType: 'audio/wav'), volume: 0.78)
+          .play(BytesSource(generatedBytes, mimeType: 'audio/wav'), volume: 0.78)
           .timeout(_audioStartTimeout);
+      if (playerSlot.playGeneration != playGeneration) return;
       started = true;
-      debugPrint('Audio started: $debugNote voice $voiceId (generated)');
+      debugPrint(
+        'Audio started: $debugNote poolIndex=${playerSlot.index} (generated)',
+      );
     } catch (error) {
       debugPrint(
-        'Keyboard note skipped: $debugNote voice $voiceId could not start. Error: $error',
+        'Keyboard note skipped: $debugNote poolIndex=${playerSlot.index} could not start. Error: $error',
       );
     } finally {
-      unawaited(_disposeKeyboardVoice(
-        player: player,
-        voiceId: voiceId,
+      unawaited(_markKeyboardPlayerIdleAfterDecay(
+        playerSlot: playerSlot,
+        playGeneration: playGeneration,
         waitForDecay: started,
       ));
     }
   }
 
-  Future<void> _disposeKeyboardVoice({
-    required AudioPlayer player,
-    required int voiceId,
+  void _releaseKeyboardPlayer(_KeyboardPooledPlayer playerSlot) {
+    playerSlot.isBusy = false;
+  }
+
+  Future<void> _markKeyboardPlayerIdleAfterDecay({
+    required _KeyboardPooledPlayer playerSlot,
+    required int playGeneration,
     required bool waitForDecay,
   }) async {
     try {
@@ -300,11 +392,10 @@ class AudioService {
           const Duration(milliseconds: _keyboardNoteDurationMs + 150),
         );
       }
-      await player.dispose();
-    } catch (_) {
-      // Audio cleanup should never interrupt keyboard input.
     } finally {
-      _activeKeyboardVoiceIds.remove(voiceId);
+      if (playerSlot.playGeneration == playGeneration) {
+        playerSlot.isBusy = false;
+      }
     }
   }
 
@@ -617,7 +708,24 @@ class AudioService {
     _songDemoToken++;
     await stopAllNotes();
     _generatedKeyboardBytesByNote.clear();
-    _activeKeyboardVoiceIds.clear();
-    await _effectsPlayer.dispose();
+    await Future.wait<void>([
+      _effectsPlayer.dispose(),
+      for (final playerSlot in _keyboardPlayers) playerSlot.player.dispose(),
+    ]);
   }
+}
+
+class _KeyboardPooledPlayer {
+  _KeyboardPooledPlayer({
+    required this.index,
+    required this.player,
+  });
+
+  final int index;
+  final AudioPlayer player;
+  bool isReady = false;
+  bool isBusy = false;
+  bool wasStolenForLastUse = false;
+  int playGeneration = 0;
+  DateTime? lastStartedAt;
 }

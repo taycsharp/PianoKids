@@ -299,7 +299,7 @@ class _PressablePianoKeyState extends State<_PressablePianoKey> {
         debugPrint('Pointer up skipped: $pointer $debugNote had no active press id');
         return;
       }
-      debugPrint('Pointer up: $pressId $debugNote');
+      debugPrint('Pointer up $debugNote highlight removed');
       widget.onStop(pressId);
     }
   }

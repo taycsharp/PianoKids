@@ -291,8 +291,8 @@ class AudioService {
       playerSlot
         ..isBusy = true
         ..wasStolenForLastUse = false
-        ..lastStartedAt = DateTime.now()
-        ..playGeneration++;
+        ..lastStartedAt = DateTime.now();
+      playerSlot.playGeneration += 1;
       return playerSlot;
     }
 
@@ -307,8 +307,8 @@ class AudioService {
     oldestPlayer
       ..isBusy = true
       ..wasStolenForLastUse = true
-      ..lastStartedAt = DateTime.now()
-      ..playGeneration++;
+      ..lastStartedAt = DateTime.now();
+    oldestPlayer.playGeneration += 1;
     _nextKeyboardPoolIndex = (oldestPlayer.index + 1) % _keyboardPlayers.length;
     debugPrint(
       'Reusing oldest player index: ${oldestPlayer.index} for $debugNote',
@@ -507,14 +507,6 @@ class AudioService {
   String _debugNoteName(String note) {
     if (note == 'High C') return 'C5';
     return '${note}4';
-  }
-
-  String _keyboardToneFileName(String note) {
-    final safeNote = note
-        .replaceAll('#', '_sharp')
-        .replaceAll(' ', '_')
-        .toLowerCase();
-    return 'keyboard_$safeNote.wav';
   }
 
   /// Builds a small stereo WAV file that is warmer and more natural than a beep.

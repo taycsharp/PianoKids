@@ -26,12 +26,12 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
 
   String get _currentNote => _finished ? widget.song.notes.last : widget.song.notes[_currentIndex];
 
-  Future<void> _onNoteStarted(String note) async {
+  Future<void> _onNoteStarted(String note, int pressId) async {
     final audio = context.read<AudioService>();
     final progressProvider = context.read<ProgressProvider>();
 
     setState(() => _pressedNotes.add(note));
-    await audio.startNote(note);
+    await audio.startNoteForPress(note: note, pressId: pressId);
 
     if (_finished) return;
 
@@ -58,9 +58,9 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
     }
   }
 
-  Future<void> _onNoteStopped(String note) async {
+  Future<void> _onNoteStopped(String note, int pressId) async {
     setState(() => _pressedNotes.remove(note));
-    await context.read<AudioService>().stopNote(note);
+    await context.read<AudioService>().stopNoteForPress(pressId);
   }
 
   @override
@@ -96,8 +96,8 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
             PianoKeyboard(
               showNoteNames: true,
               highlightedNotes: _pressedNotes,
-              onNoteStarted: _onNoteStarted,
-              onNoteStopped: _onNoteStopped,
+              onKeyPressStarted: _onNoteStarted,
+              onKeyPressStopped: _onNoteStopped,
             ),
             const SizedBox(height: 18),
             if (_finished)

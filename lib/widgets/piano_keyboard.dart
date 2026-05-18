@@ -19,6 +19,9 @@ class PianoKeyboard extends StatelessWidget {
   final PianoKeyPressChanged? onKeyPressStopped;
   final String? highlightedNote;
   final Set<String> highlightedNotes;
+  final ValueListenable<Set<String>>? highlightedNotesListenable;
+
+  static const bool _keyboardDebugLogs = false;
 
   static const whiteNotes = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'High C'];
   static const blackNotes = ['C#', 'D#', 'F#', 'G#', 'A#'];
@@ -43,6 +46,7 @@ class PianoKeyboard extends StatelessWidget {
     this.showNoteNames = true,
     this.highlightedNote,
     this.highlightedNotes = const {},
+    this.highlightedNotesListenable,
   });
 
   static String displayName(String note) {
@@ -50,8 +54,8 @@ class PianoKeyboard extends StatelessWidget {
     return note.replaceAll('#', '♯');
   }
 
-  bool _isHighlighted(String note) {
-    return note == highlightedNote || highlightedNotes.contains(note);
+  bool _isHighlighted(String note, Set<String> activeHighlights) {
+    return note == highlightedNote || activeHighlights.contains(note);
   }
 
   void _startNote(String note, int pressId) {
@@ -79,40 +83,82 @@ class PianoKeyboard extends StatelessWidget {
             color: const Color(0xFF34344A),
             borderRadius: BorderRadius.circular(26),
           ),
-          child: Stack(
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: _HighlightedKeysBuilder(
+            highlightedNotes: highlightedNotes,
+            highlightedNotesListenable: highlightedNotesListenable,
+            builder: (context, activeHighlights) {
+              return Stack(
                 children: [
-                  for (final note in whiteNotes)
-                    Expanded(
-                      child: _WhiteKey(
-                        note: note,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final note in whiteNotes)
+                        Expanded(
+                          child: _WhiteKey(
+                            note: note,
+                            showName: showNoteNames,
+                            isHighlighted: _isHighlighted(
+                              note,
+                              activeHighlights,
+                            ),
+                            onStart: (pressId) => _startNote(note, pressId),
+                            onStop: (pressId) => _stopNote(note, pressId),
+                          ),
+                        ),
+                    ],
+                  ),
+                  for (final entry in blackKeyBoundaryPositions.entries)
+                    Positioned(
+                      left: entry.value * keyWidth - blackKeyWidth / 2,
+                      top: 0,
+                      width: blackKeyWidth,
+                      height: 132,
+                      child: _BlackKey(
+                        note: entry.key,
                         showName: showNoteNames,
-                        isHighlighted: _isHighlighted(note),
-                        onStart: (pressId) => _startNote(note, pressId),
-                        onStop: (pressId) => _stopNote(note, pressId),
+                        isHighlighted: _isHighlighted(
+                          entry.key,
+                          activeHighlights,
+                        ),
+                        onStart: (pressId) => _startNote(entry.key, pressId),
+                        onStop: (pressId) => _stopNote(entry.key, pressId),
                       ),
                     ),
                 ],
-              ),
-              for (final entry in blackKeyBoundaryPositions.entries)
-                Positioned(
-                  left: entry.value * keyWidth - blackKeyWidth / 2,
-                  top: 0,
-                  width: blackKeyWidth,
-                  height: 132,
-                  child: _BlackKey(
-                    note: entry.key,
-                    showName: showNoteNames,
-                    isHighlighted: _isHighlighted(entry.key),
-                    onStart: (pressId) => _startNote(entry.key, pressId),
-                    onStop: (pressId) => _stopNote(entry.key, pressId),
-                  ),
-                ),
-            ],
+              );
+            },
           ),
         );
+      },
+    );
+  }
+}
+
+typedef _HighlightedKeysWidgetBuilder = Widget Function(
+  BuildContext context,
+  Set<String> activeHighlights,
+);
+
+class _HighlightedKeysBuilder extends StatelessWidget {
+  final Set<String> highlightedNotes;
+  final ValueListenable<Set<String>>? highlightedNotesListenable;
+  final _HighlightedKeysWidgetBuilder builder;
+
+  const _HighlightedKeysBuilder({
+    required this.highlightedNotes,
+    required this.highlightedNotesListenable,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final listenable = highlightedNotesListenable;
+    if (listenable == null) return builder(context, highlightedNotes);
+
+    return ValueListenableBuilder<Set<String>>(
+      valueListenable: listenable,
+      builder: (context, activeHighlights, child) {
+        return builder(context, activeHighlights);
       },
     );
   }
@@ -272,37 +318,52 @@ class _PressablePianoKeyState extends State<_PressablePianoKey> {
   int? _activePressId;
 
   void _handleDown(PointerDownEvent event) {
-    final debugNote = _debugNoteName(widget.note);
     final wasIdle = _activePointers.isEmpty;
     _activePointers.add(event.pointer);
     if (wasIdle) {
       _activePressId = event.pointer;
-      final pointerDownMs = DateTime.now().millisecondsSinceEpoch;
-      debugPrint(
-        'Pointer down $debugNote at ${pointerDownMs}ms pointer=${event.pointer}',
-      );
+      if (PianoKeyboard._keyboardDebugLogs) {
+        final debugNote = _debugNoteName(widget.note);
+        final pointerDownMs = DateTime.now().millisecondsSinceEpoch;
+        debugPrint(
+          'Pointer down $debugNote at ${pointerDownMs}ms pointer=${event.pointer}',
+        );
+      }
       widget.onStart(event.pointer);
     } else {
-      debugPrint(
-        'Pointer down skipped: ${event.pointer} $debugNote is already held by another pointer',
-      );
+      if (PianoKeyboard._keyboardDebugLogs) {
+        final debugNote = _debugNoteName(widget.note);
+        debugPrint(
+          'Pointer down skipped: ${event.pointer} $debugNote is already held by another pointer',
+        );
+      }
     }
   }
 
   void _handleEnd(int pointer) {
-    final debugNote = _debugNoteName(widget.note);
     if (!_activePointers.remove(pointer)) {
-      debugPrint('Pointer up skipped: $pointer $debugNote was not active');
+      if (PianoKeyboard._keyboardDebugLogs) {
+        final debugNote = _debugNoteName(widget.note);
+        debugPrint('Pointer up skipped: $pointer $debugNote was not active');
+      }
       return;
     }
     if (_activePointers.isEmpty) {
       final pressId = _activePressId;
       _activePressId = null;
       if (pressId == null) {
-        debugPrint('Pointer up skipped: $pointer $debugNote had no active press id');
+        if (PianoKeyboard._keyboardDebugLogs) {
+          final debugNote = _debugNoteName(widget.note);
+          debugPrint(
+            'Pointer up skipped: $pointer $debugNote had no active press id',
+          );
+        }
         return;
       }
-      debugPrint('Pointer up $debugNote highlight removed');
+      if (PianoKeyboard._keyboardDebugLogs) {
+        final debugNote = _debugNoteName(widget.note);
+        debugPrint('Pointer up $debugNote highlight removed');
+      }
       widget.onStop(pressId);
     }
   }

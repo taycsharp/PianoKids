@@ -15,31 +15,38 @@ class PianoScreen extends StatefulWidget {
 }
 
 class _PianoScreenState extends State<PianoScreen> {
+  static const bool _keyboardDebugLogs = false;
+  static const Duration _messageUpdateInterval = Duration(milliseconds: 300);
+
   bool _showNames = true;
   bool _funMode = false;
   final Map<int, String> _activePresses = {};
-  final Set<String> _pressedNotes = {};
-  String _message = 'Play any note!';
+  final ValueNotifier<Set<String>> _pressedNotes = ValueNotifier(const {});
+  final ValueNotifier<String> _message = ValueNotifier('Play any note!');
+  DateTime _lastMessageUpdate = DateTime.fromMillisecondsSinceEpoch(0);
   final List<String> _sequence = [];
   final List<String> _rewardSequence = ['C', 'D', 'E'];
 
   void _startNote(String note, int pressId) {
-    final debugNote = _debugNoteName(note);
-    debugPrint('Parent key down received: $pressId $debugNote');
+    if (_keyboardDebugLogs) {
+      final debugNote = _debugNoteName(note);
+      debugPrint('Parent key down received: $pressId $debugNote');
+    }
 
     final audio = context.read<AudioService>();
-    debugPrint('Parent calls playKeyboardNote before setState: $debugNote');
+    if (_keyboardDebugLogs) {
+      final debugNote = _debugNoteName(note);
+      debugPrint('Parent calls playKeyboardNote before UI updates: $debugNote');
+    }
     audio.playKeyboardNote(note);
 
     _activePresses[pressId] = note;
-    debugPrint('Parent active presses after down: ${_debugActivePresses()}');
-
-    if (mounted) {
-      setState(() {
-        _syncPressedNotesFromActivePresses();
-        _message = 'You played $note!';
-      });
+    if (_keyboardDebugLogs) {
+      debugPrint('Parent active presses after down: ${_debugActivePresses()}');
     }
+
+    _syncPressedNotesFromActivePresses();
+    _updatePlayedMessage(note);
 
     if (_funMode) {
       _sequence.add(note);
@@ -48,7 +55,7 @@ class _PianoScreenState extends State<PianoScreen> {
         unawaited(
           Future<void>.delayed(const Duration(milliseconds: 80), () async {
             await audio.playAnimalReward();
-            if (mounted) setState(() => _message = 'Animal reward! 🐶 ⭐');
+            if (mounted) _message.value = 'Animal reward! 🐶 ⭐';
           }),
         );
       }
@@ -56,21 +63,29 @@ class _PianoScreenState extends State<PianoScreen> {
   }
 
   void _stopNote(String note, int pressId) {
-    final debugNote = _debugNoteName(note);
-    debugPrint('Parent key up received: $pressId $debugNote');
+    if (_keyboardDebugLogs) {
+      final debugNote = _debugNoteName(note);
+      debugPrint('Parent key up received: $pressId $debugNote');
+    }
 
     _activePresses.remove(pressId);
-    debugPrint('Parent active presses after up: ${_debugActivePresses()}');
-
-    if (mounted) {
-      setState(_syncPressedNotesFromActivePresses);
+    if (_keyboardDebugLogs) {
+      debugPrint('Parent active presses after up: ${_debugActivePresses()}');
     }
+
+    _syncPressedNotesFromActivePresses();
   }
 
   void _syncPressedNotesFromActivePresses() {
-    _pressedNotes
-      ..clear()
-      ..addAll(_activePresses.values);
+    _pressedNotes.value = Set<String>.unmodifiable(_activePresses.values);
+  }
+
+  void _updatePlayedMessage(String note) {
+    final now = DateTime.now();
+    if (now.difference(_lastMessageUpdate) < _messageUpdateInterval) return;
+
+    _lastMessageUpdate = now;
+    _message.value = 'You played $note!';
   }
 
   String _debugActivePresses() {
@@ -86,67 +101,84 @@ class _PianoScreenState extends State<PianoScreen> {
   }
 
   @override
+  void dispose() {
+    _pressedNotes.dispose();
+    _message.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final audio = context.read<AudioService>();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Play Piano'),
-      ),
+      appBar: AppBar(title: const Text('Play Piano')),
       body: SafeArea(
-        child: ListView(
+        child: Padding(
           padding: const EdgeInsets.all(18),
-          children: [
-            StarReward(stars: 1, message: _message),
-            const SizedBox(height: 18),
-            SwitchListTile(
-              value: _showNames,
-              onChanged: (value) => setState(() => _showNames = value),
-              title: const Text(
-                'Show note names',
-                style: TextStyle(fontWeight: FontWeight.w800),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ValueListenableBuilder<String>(
+                valueListenable: _message,
+                builder: (context, message, child) {
+                  return StarReward(stars: 1, message: message);
+                },
               ),
-              secondary: const Icon(Icons.abc),
-            ),
-            SwitchListTile(
-              value: _funMode,
-              onChanged: (value) => setState(() => _funMode = value),
-              title: const Text(
-                'Fun reward mode',
-                style: TextStyle(fontWeight: FontWeight.w800),
+              const SizedBox(height: 18),
+              SwitchListTile(
+                value: _showNames,
+                onChanged: (value) => setState(() => _showNames = value),
+                title: const Text(
+                  'Show note names',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                secondary: const Icon(Icons.abc),
               ),
-              subtitle: const Text('Try C-D-E, then C♯-D♯!'),
-              secondary: const Icon(Icons.pets),
-            ),
-            const SizedBox(height: 12),
-            ValueListenableBuilder<bool>(
-              valueListenable: audio.keyboardCacheReadyListenable,
-              builder: (context, isKeyboardReady, child) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (!isKeyboardReady) ...[
-                      const _LoadingPianoSoundsCard(),
-                      const SizedBox(height: 10),
-                    ],
-                    AbsorbPointer(
-                      absorbing: !isKeyboardReady,
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 180),
-                        opacity: isKeyboardReady ? 1 : 0.55,
-                        child: PianoKeyboard(
-                          showNoteNames: _showNames,
-                          highlightedNotes: _pressedNotes,
-                          onKeyPressStarted: _startNote,
-                          onKeyPressStopped: _stopNote,
+              SwitchListTile(
+                value: _funMode,
+                onChanged: (value) => setState(() => _funMode = value),
+                title: const Text(
+                  'Fun reward mode',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: const Text('Try C-D-E, then C♯-D♯!'),
+                secondary: const Icon(Icons.pets),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: audio.keyboardCacheReadyListenable,
+                  builder: (context, isKeyboardReady, child) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (!isKeyboardReady) ...[
+                          const _LoadingPianoSoundsCard(),
+                          const SizedBox(height: 10),
+                        ],
+                        RepaintBoundary(
+                          child: AbsorbPointer(
+                            absorbing: !isKeyboardReady,
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 180),
+                              opacity: isKeyboardReady ? 1 : 0.55,
+                              child: PianoKeyboard(
+                                showNoteNames: _showNames,
+                                highlightedNotesListenable: _pressedNotes,
+                                onKeyPressStarted: _startNote,
+                                onKeyPressStopped: _stopNote,
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ],
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

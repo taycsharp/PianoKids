@@ -43,6 +43,8 @@ class AudioService {
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
   static const int _keyboardNoteDurationMs = 200;
+  static const bool _keyboardDebugLogs = false;
+  static const bool _useDiagnosticClickTone = false;
   static const Duration _audioStartTimeout = Duration(milliseconds: 900);
 
   static const int _sampleRate = 44100;
@@ -107,8 +109,10 @@ class AudioService {
       return;
     }
 
-    final requestedAtMs = DateTime.now().millisecondsSinceEpoch;
-    debugPrint('Keyboard note triggered: $debugNote at ${requestedAtMs}ms');
+    if (_keyboardDebugLogs) {
+      final requestedAtMs = DateTime.now().millisecondsSinceEpoch;
+      debugPrint('Keyboard note triggered: $debugNote at ${requestedAtMs}ms');
+    }
     _playSoLoudKeyboardNote(
       debugNote: debugNote,
       source: source,
@@ -206,18 +210,22 @@ class AudioService {
       // keeps the live keyboard path small and avoids an 88-note cache for now.
       for (final entry in _noteFrequencies.entries) {
         final debugNote = _debugNoteName(entry.key);
-        final sample = _buildWarmWoodPianoWav(
-          frequency: entry.value,
-          durationMs: _keyboardNoteDurationMs,
-          volume: 0.82,
-          velocity: 1.0,
-          liveKeyboard: true,
-        );
-        debugPrint(
-          'Live sample duration $debugNote = ${sample.info.durationMs}ms; '
-          'first non-zero sample at ${sample.info.firstNonZeroSampleMs}ms; '
-          'attack peak within first 30ms = ${sample.info.attackPeakWithinFirst30Ms}',
-        );
+        final sample = _useDiagnosticClickTone
+            ? _buildDiagnosticClickToneWav(frequency: entry.value)
+            : _buildWarmWoodPianoWav(
+                frequency: entry.value,
+                durationMs: _keyboardNoteDurationMs,
+                volume: 0.82,
+                velocity: 1.0,
+                liveKeyboard: true,
+              );
+        if (_keyboardDebugLogs) {
+          debugPrint(
+            'Live sample duration $debugNote = ${sample.info.durationMs}ms; '
+            'first non-zero sample at ${sample.info.firstNonZeroSampleMs}ms; '
+            'attack peak within first 30ms = ${sample.info.attackPeakWithinFirst30Ms}',
+          );
+        }
         _keyboardSoundByNote[entry.key] = await _soloud.loadMem(
           '$debugNote.wav',
           sample.bytes,
@@ -265,22 +273,28 @@ class AudioService {
     required AudioSource source,
     required _KeyboardSampleInfo? sampleInfo,
   }) {
-    final beforePlayMs = DateTime.now().millisecondsSinceEpoch;
-    debugPrint('SoLoud play called $debugNote at ${beforePlayMs}ms');
-    if (sampleInfo != null) {
-      debugPrint(
-        'Live sample duration $debugNote = ${sampleInfo.durationMs}ms; '
-        'first non-zero sample at ${sampleInfo.firstNonZeroSampleMs}ms; '
-        'attack peak within first 30ms = ${sampleInfo.attackPeakWithinFirst30Ms}',
-      );
+    if (_keyboardDebugLogs) {
+      final beforePlayMs = DateTime.now().millisecondsSinceEpoch;
+      debugPrint('SoLoud play called $debugNote at ${beforePlayMs}ms');
+      if (sampleInfo != null) {
+        debugPrint(
+          'Live sample duration $debugNote = ${sampleInfo.durationMs}ms; '
+          'first non-zero sample at ${sampleInfo.firstNonZeroSampleMs}ms; '
+          'attack peak within first 30ms = ${sampleInfo.attackPeakWithinFirst30Ms}',
+        );
+      }
     }
 
     try {
-      final voice = _soloud.play(source, volume: 0.86);
-      final afterPlayMs = DateTime.now().millisecondsSinceEpoch;
-      debugPrint(
-        'SoLoud voice started: $debugNote voice=$voice at ${afterPlayMs}ms',
-      );
+      if (_keyboardDebugLogs) {
+        final voice = _soloud.play(source, volume: 0.86);
+        final afterPlayMs = DateTime.now().millisecondsSinceEpoch;
+        debugPrint(
+          'SoLoud voice started: $debugNote voice=$voice at ${afterPlayMs}ms',
+        );
+      } else {
+        _soloud.play(source, volume: 0.86);
+      }
     } catch (error) {
       debugPrint(
         'Keyboard note skipped: $debugNote SoLoud play failed. Error: $error',
@@ -396,6 +410,58 @@ class AudioService {
   String _debugNoteName(String note) {
     if (note == 'High C') return 'C5';
     return '${note}4';
+  }
+
+  _GeneratedPianoWav _buildDiagnosticClickToneWav({required double frequency}) {
+    const durationMs = 70;
+    final totalSamples = (_sampleRate * durationMs / 1000).round();
+    final pcmBytes = BytesBuilder(copy: false);
+    var peak = 0.0;
+    var firstNonZeroSampleIndex = -1;
+    var first30MsPeak = 0.0;
+    final first30SampleCount = (_sampleRate * 0.030).round();
+    final samples = List<double>.filled(totalSamples, 0);
+
+    for (var i = 0; i < totalSamples; i++) {
+      final t = i / _sampleRate;
+      final envelope = math.exp(-t * 65.0);
+      final clickEnvelope = math.exp(-t * 260.0);
+      final tone = math.sin(2 * math.pi * frequency * t) * 0.75;
+      final click = math.sin(2 * math.pi * 2200.0 * t) * 0.45;
+      final sample = (tone * envelope + click * clickEnvelope) * 0.9;
+      samples[i] = sample;
+
+      final framePeak = sample.abs();
+      if (framePeak > peak) peak = framePeak;
+      if (firstNonZeroSampleIndex == -1 && framePeak > 0.00003) {
+        firstNonZeroSampleIndex = i;
+      }
+      if (i < first30SampleCount && framePeak > first30MsPeak) {
+        first30MsPeak = framePeak;
+      }
+    }
+
+    final normalizeGain = peak <= 0 ? 1.0 : math.min(1.8, 0.9 / peak);
+    for (final sample in samples) {
+      final value = _toInt16(_softClip(sample * normalizeGain));
+      pcmBytes
+        ..addByte(value & 0xff)
+        ..addByte((value >> 8) & 0xff)
+        ..addByte(value & 0xff)
+        ..addByte((value >> 8) & 0xff);
+    }
+
+    final firstNonZeroMs = firstNonZeroSampleIndex < 0
+        ? -1
+        : (firstNonZeroSampleIndex * 1000 / _sampleRate).round();
+    return _GeneratedPianoWav(
+      bytes: _wrapPcmAsWav(pcmBytes.takeBytes()),
+      info: _KeyboardSampleInfo(
+        durationMs: durationMs,
+        firstNonZeroSampleMs: firstNonZeroMs,
+        attackPeakWithinFirst30Ms: first30MsPeak * normalizeGain >= 0.22,
+      ),
+    );
   }
 
   /// Builds a small stereo WAV file that is warmer and more natural than a beep.

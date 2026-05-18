@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_soloud/flutter_soloud.dart';
 
 import '../models/song.dart';
 
@@ -20,28 +21,19 @@ import '../models/song.dart';
 /// wood-piano-like tone designed for a kid-friendly MVP.
 class AudioService {
   AudioService() {
-    _keyboardPlayers = List.generate(
-      _keyboardPlayerPoolSize,
-      (index) => _KeyboardPooledPlayer(
-        index: index,
-        player: AudioPlayer(playerId: 'keyboard_pool_$index'),
-      ),
-    );
     unawaited(_initializeKeyboardAudio());
   }
 
   final AudioPlayer _effectsPlayer = AudioPlayer();
-  late final List<_KeyboardPooledPlayer> _keyboardPlayers;
+  final SoLoud _soloud = SoLoud.instance;
   final Map<String, bool> _assetAvailabilityByNote = {};
-  final Map<String, Uint8List> _generatedKeyboardBytesByNote = {};
+  final Map<String, AudioSource> _keyboardSoundByNote = {};
   var _songDemoToken = 0;
-  var _nextKeyboardPoolIndex = 0;
-
-  static const int _keyboardPlayerPoolSize = 24;
+  var _isSoLoudReady = false;
 
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
-  static const int _keyboardNoteDurationMs = 1100;
+  static const int _keyboardNoteDurationMs = 620;
   static const Duration _audioStartTimeout = Duration(milliseconds: 900);
 
   static const int _sampleRate = 44100;
@@ -88,48 +80,26 @@ class AudioService {
 
   /// Plays one short, naturally decaying keyboard note.
   ///
-  /// Live keyboard playback uses a fixed warm player pool. Key presses never
-  /// allocate or configure a native player, so held notes, chords, and repeated
-  /// taps can start independently and decay naturally.
+  /// Live keyboard playback uses preloaded flutter_soloud sources. Key presses
+  /// never allocate or configure `AudioPlayer` instances, never generate audio,
+  /// and never stop audio on release, so chords and repeated taps can start as
+  /// independent SoLoud voices.
   void playKeyboardNote(String note) {
-    final requestedAt = DateTime.now();
     final debugNote = _debugNoteName(note);
-    debugPrint('Keyboard note requested: $debugNote');
 
     if (!_noteFrequencies.containsKey(note)) {
       debugPrint('Keyboard note skipped: $debugNote has no visible-key frequency');
       return;
     }
 
-    final playerSlot = _selectKeyboardPlayer(debugNote);
-    if (playerSlot == null) {
-      debugPrint('Keyboard note skipped: $debugNote has no ready pooled player');
+    final source = _keyboardSoundByNote[note];
+    if (!_isSoLoudReady || source == null) {
+      debugPrint('Keyboard note skipped: $debugNote SoLoud cache is not ready');
       return;
     }
 
-    final assetPath = _noteFiles[note];
-    final generatedBytes = _generatedKeyboardBytesByNote[note];
-    if (assetPath == null && generatedBytes == null) {
-      debugPrint('Keyboard note skipped: $debugNote has no cached audio source');
-      _releaseKeyboardPlayer(playerSlot);
-      return;
-    }
-
-    final elapsedMs = DateTime.now().difference(requestedAt).inMilliseconds;
-    final reuseMode = playerSlot.wasStolenForLastUse ? 'stolen' : 'reused';
-    debugPrint(
-      'Using pooled player index: ${playerSlot.index} for $debugNote '
-      '($reuseMode, ${elapsedMs}ms from pointer down to play call)',
-    );
-
-    unawaited(_playKeyboardPooledNote(
-      note: note,
-      debugNote: debugNote,
-      assetPath: assetPath,
-      generatedBytes: generatedBytes,
-      playerSlot: playerSlot,
-      playGeneration: playerSlot.playGeneration,
-    ));
+    debugPrint('Keyboard note triggered: $debugNote');
+    _playSoLoudKeyboardNote(debugNote: debugNote, source: source);
   }
 
   /// Legacy API for non-keyboard callers. It now uses the same fire-and-forget
@@ -209,27 +179,40 @@ class AudioService {
 
   Future<void> _initializeKeyboardAudio() async {
     await Future.wait<void>([
-      _prepareKeyboardPlayerPool(),
-      _prepareVisibleKeyboardNotes(),
+      _loadAssetManifest(),
+      _prepareSoLoudKeyboardCache(),
     ]);
   }
 
-  Future<void> _prepareKeyboardPlayerPool() async {
-    for (final playerSlot in _keyboardPlayers) {
-      try {
-        await playerSlot.player.setReleaseMode(ReleaseMode.stop);
-        await playerSlot.player.setPlayerMode(PlayerMode.lowLatency);
-        playerSlot.isReady = true;
-      } catch (error) {
-        playerSlot.isReady = false;
-        debugPrint(
-          'Keyboard pooled player ${playerSlot.index} setup skipped. Error: $error',
+  Future<void> _prepareSoLoudKeyboardCache() async {
+    try {
+      if (!_soloud.isInitialized) await _soloud.init();
+
+      // Only preload the notes that are visible on the beginner keyboard. This
+      // keeps the live keyboard path small and avoids an 88-note cache for now.
+      for (final entry in _noteFrequencies.entries) {
+        final debugNote = _debugNoteName(entry.key);
+        final bytes = _buildWarmWoodPianoWav(
+          frequency: entry.value,
+          durationMs: _keyboardNoteDurationMs,
+          volume: 0.52,
+          velocity: 0.72,
+        );
+        _keyboardSoundByNote[entry.key] = await _soloud.loadMem(
+          '$debugNote.wav',
+          bytes,
+          mode: LoadMode.memory,
         );
       }
-    }
 
-    final readyCount = _keyboardPlayers.where((slot) => slot.isReady).length;
-    debugPrint('Keyboard player pool ready: $readyCount players');
+      _isSoLoudReady = _keyboardSoundByNote.length == _noteFrequencies.length;
+      debugPrint(
+        'SoLoud keyboard cache ready: ${_keyboardSoundByNote.length} notes',
+      );
+    } catch (error) {
+      _isSoLoudReady = false;
+      debugPrint('SoLoud keyboard cache skipped. Error: $error');
+    }
   }
 
   Future<void> _loadAssetManifest() async {
@@ -254,148 +237,17 @@ class AudioService {
     }
   }
 
-  Future<void> _prepareVisibleKeyboardNotes() async {
-    try {
-      // Only prepare the notes that are visible on the beginner keyboard. This
-      // keeps startup simple while ensuring key presses never generate WAV bytes.
-      await Future<void>.delayed(Duration.zero);
-      await _loadAssetManifest();
-
-      for (final entry in _noteFrequencies.entries) {
-        _generatedKeyboardBytesByNote[entry.key] = _buildWarmWoodPianoWav(
-          frequency: entry.value,
-          durationMs: _keyboardNoteDurationMs,
-          volume: 0.52,
-          velocity: 0.72,
-        );
-      }
-
-      debugPrint(
-        'Visible keyboard tones ready (${_noteFrequencies.length} notes)',
-      );
-    } catch (error) {
-      debugPrint('Visible keyboard tone preparation skipped. Error: $error');
-    }
-  }
-
-  _KeyboardPooledPlayer? _selectKeyboardPlayer(String debugNote) {
-    final readyPlayers = _keyboardPlayers.where((slot) => slot.isReady).toList();
-    if (readyPlayers.isEmpty) return null;
-
-    for (var checked = 0; checked < _keyboardPlayers.length; checked++) {
-      final index = (_nextKeyboardPoolIndex + checked) % _keyboardPlayers.length;
-      final playerSlot = _keyboardPlayers[index];
-      if (!playerSlot.isReady || playerSlot.isBusy) continue;
-
-      _nextKeyboardPoolIndex = (index + 1) % _keyboardPlayers.length;
-      playerSlot
-        ..isBusy = true
-        ..wasStolenForLastUse = false
-        ..lastStartedAt = DateTime.now();
-      playerSlot.playGeneration += 1;
-      return playerSlot;
-    }
-
-    final oldestPlayer = readyPlayers.reduce((oldest, candidate) {
-      final oldestStartedAt =
-          oldest.lastStartedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final candidateStartedAt =
-          candidate.lastStartedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      return candidateStartedAt.isBefore(oldestStartedAt) ? candidate : oldest;
-    });
-
-    oldestPlayer
-      ..isBusy = true
-      ..wasStolenForLastUse = true
-      ..lastStartedAt = DateTime.now();
-    oldestPlayer.playGeneration += 1;
-    _nextKeyboardPoolIndex = (oldestPlayer.index + 1) % _keyboardPlayers.length;
-    debugPrint(
-      'Reusing oldest player index: ${oldestPlayer.index} for $debugNote',
-    );
-    return oldestPlayer;
-  }
-
-  Future<void> _playKeyboardPooledNote({
-    required String note,
+  void _playSoLoudKeyboardNote({
     required String debugNote,
-    required String? assetPath,
-    required Uint8List? generatedBytes,
-    required _KeyboardPooledPlayer playerSlot,
-    required int playGeneration,
-  }) async {
-    var started = false;
-    final wasStolen = playerSlot.wasStolenForLastUse;
-    final player = playerSlot.player;
+    required AudioSource source,
+  }) {
     try {
-      if (assetPath != null && _assetAvailabilityByNote[note] == true) {
-        try {
-          if (wasStolen) await player.stop();
-          await player
-              .play(AssetSource(assetPath), volume: 0.78)
-              .timeout(_audioStartTimeout);
-          if (playerSlot.playGeneration != playGeneration) return;
-          started = true;
-          debugPrint(
-            'Audio started: $debugNote poolIndex=${playerSlot.index} (asset)',
-          );
-          return;
-        } catch (error) {
-          _assetAvailabilityByNote[note] = false;
-          debugPrint(
-            'Keyboard asset skipped for $debugNote poolIndex=${playerSlot.index}; falling back to cached generated tone. Error: $error',
-          );
-        }
-      }
-
-      if (generatedBytes == null) {
-        debugPrint(
-          'Keyboard note skipped: $debugNote poolIndex=${playerSlot.index} has no cached generated bytes',
-        );
-        return;
-      }
-
-      if (wasStolen) await player.stop();
-      await player
-          .play(BytesSource(generatedBytes, mimeType: 'audio/wav'), volume: 0.78)
-          .timeout(_audioStartTimeout);
-      if (playerSlot.playGeneration != playGeneration) return;
-      started = true;
-      debugPrint(
-        'Audio started: $debugNote poolIndex=${playerSlot.index} (generated)',
-      );
+      final voice = _soloud.play(source, volume: 0.78);
+      debugPrint('SoLoud voice started: $debugNote voice=$voice');
     } catch (error) {
       debugPrint(
-        'Keyboard note skipped: $debugNote poolIndex=${playerSlot.index} could not start. Error: $error',
+        'Keyboard note skipped: $debugNote SoLoud play failed. Error: $error',
       );
-    } finally {
-      unawaited(_markKeyboardPlayerIdleAfterDecay(
-        playerSlot: playerSlot,
-        playGeneration: playGeneration,
-        waitForDecay: started,
-      ));
-    }
-  }
-
-  void _releaseKeyboardPlayer(_KeyboardPooledPlayer playerSlot) {
-    playerSlot.isBusy = false;
-  }
-
-  Future<void> _markKeyboardPlayerIdleAfterDecay({
-    required _KeyboardPooledPlayer playerSlot,
-    required int playGeneration,
-    required bool waitForDecay,
-  }) async {
-    try {
-      if (waitForDecay) {
-        await Future<void>.delayed(
-          const Duration(milliseconds: _keyboardNoteDurationMs + 150),
-        );
-      }
-    } finally {
-      if (playerSlot.playGeneration == playGeneration) {
-        playerSlot.isBusy = false;
-      }
     }
   }
 
@@ -699,25 +551,22 @@ class AudioService {
   Future<void> dispose() async {
     _songDemoToken++;
     await stopAllNotes();
-    _generatedKeyboardBytesByNote.clear();
-    await Future.wait<void>([
-      _effectsPlayer.dispose(),
-      for (final playerSlot in _keyboardPlayers) playerSlot.player.dispose(),
-    ]);
+
+    for (final source in _keyboardSoundByNote.values) {
+      try {
+        await _soloud.disposeSource(source);
+      } catch (error) {
+        debugPrint('SoLoud keyboard source dispose skipped. Error: $error');
+      }
+    }
+    _keyboardSoundByNote.clear();
+
+    try {
+      _soloud.deinit();
+    } catch (error) {
+      debugPrint('SoLoud deinit skipped. Error: $error');
+    }
+
+    await _effectsPlayer.dispose();
   }
-}
-
-class _KeyboardPooledPlayer {
-  _KeyboardPooledPlayer({
-    required this.index,
-    required this.player,
-  });
-
-  final int index;
-  final AudioPlayer player;
-  bool isReady = false;
-  bool isBusy = false;
-  bool wasStolenForLastUse = false;
-  int playGeneration = 0;
-  DateTime? lastStartedAt;
 }

@@ -51,22 +51,31 @@ class _EarTrainingScreenState extends State<EarTrainingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final audio = context.read<AudioService>();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Ear Training'),
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            children: [
+        child: ValueListenableBuilder<bool>(
+          valueListenable: audio.keyboardCacheReadyListenable,
+          builder: (context, isAudioReady, child) {
+            return Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                children: [
               StarReward(stars: min(_correct, 3), message: _message),
               const SizedBox(height: 24),
+              if (!isAudioReady) ...[
+                const _LoadingPianoSoundsBanner(),
+                const SizedBox(height: 14),
+              ],
               SizedBox(
                 width: double.infinity,
                 height: 74,
                 child: FilledButton.icon(
-                  onPressed: _playQuestion,
+                  onPressed: isAudioReady ? _playQuestion : null,
                   icon: const Icon(Icons.volume_up, size: 32),
                   label: const Text('Play Note', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
                 ),
@@ -79,14 +88,47 @@ class _EarTrainingScreenState extends State<EarTrainingScreen> {
                     width: double.infinity,
                     height: 68,
                     child: OutlinedButton(
-                      onPressed: () => _choose(note),
+                      onPressed: isAudioReady ? () => _choose(note) : null,
                       child: Text(note, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
                     ),
                   ),
                 ),
-            ],
-          ),
+                ],
+              ),
+            );
+          },
         ),
+      ),
+    );
+  }
+}
+
+class _LoadingPianoSoundsBanner extends StatelessWidget {
+  const _LoadingPianoSoundsBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3B0),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Row(
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 3),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Loading piano sounds…',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
       ),
     );
   }

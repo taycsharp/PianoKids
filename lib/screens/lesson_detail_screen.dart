@@ -128,13 +128,17 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final target = _targetNote;
+    final audio = context.read<AudioService>();
 
     return Scaffold(
       appBar: AppBar(title: Text(widget.lesson.title)),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(18),
-          children: [
+        child: ValueListenableBuilder<bool>(
+          valueListenable: audio.keyboardCacheReadyListenable,
+          builder: (context, isAudioReady, child) {
+            return ListView(
+              padding: const EdgeInsets.all(18),
+              children: [
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -153,7 +157,15 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
               ),
             ),
             const SizedBox(height: 18),
-            PrimaryButton(text: target == null ? 'Hear sound' : 'Hear ${_displayNote(target)}', icon: Icons.volume_up, onPressed: _playInstruction),
+                PrimaryButton(
+                  text: target == null ? 'Hear sound' : 'Hear ${_displayNote(target)}',
+                  icon: Icons.volume_up,
+                  onPressed: isAudioReady ? _playInstruction : null,
+                ),
+                if (!isAudioReady) ...[
+                  const SizedBox(height: 12),
+                  const _LoadingPianoSoundsBanner(),
+                ],
             const SizedBox(height: 18),
             if (widget.lesson.taskType != LessonTaskType.rhythm && widget.lesson.taskType != LessonTaskType.song) ...[
               KeyboardPatternGuide(title: _guideTitle, message: _guideMessage),
@@ -184,11 +196,20 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
                 style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 16),
-              PianoKeyboard(
-                showNoteNames: true,
-                highlightedNotes: _pressedNotes,
-                onKeyPressStarted: _onNoteStarted,
-                onKeyPressStopped: _onNoteStopped,
+              RepaintBoundary(
+                child: AbsorbPointer(
+                  absorbing: !isAudioReady,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 180),
+                    opacity: isAudioReady ? 1 : 0.55,
+                    child: PianoKeyboard(
+                      showNoteNames: true,
+                      highlightedNotes: _pressedNotes,
+                      onKeyPressStarted: _onNoteStarted,
+                      onKeyPressStopped: _onNoteStopped,
+                    ),
+                  ),
+                ),
               ),
             ],
             const SizedBox(height: 18),
@@ -213,8 +234,41 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
                 icon: Icons.check_circle,
                 onPressed: _completeLesson,
               ),
-          ],
+              ],
+            );
+          },
         ),
+      ),
+    );
+  }
+}
+
+class _LoadingPianoSoundsBanner extends StatelessWidget {
+  const _LoadingPianoSoundsBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3B0),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Row(
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 3),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Loading piano sounds…',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
       ),
     );
   }

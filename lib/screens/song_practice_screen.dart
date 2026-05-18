@@ -30,8 +30,8 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
     final audio = context.read<AudioService>();
     final progressProvider = context.read<ProgressProvider>();
 
-    setState(() => _pressedNotes.add(note));
     audio.playKeyboardNote(note);
+    setState(() => _pressedNotes.add(note));
 
     if (_finished) return;
 
@@ -64,6 +64,7 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final audio = context.read<AudioService>();
     final visibleNotes = widget.song.notes.asMap().entries.map((entry) {
       final isCurrent = entry.key == _currentIndex;
       final isDone = entry.key < _currentIndex;
@@ -92,11 +93,33 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
             const SizedBox(height: 16),
             Wrap(alignment: WrapAlignment.center, children: visibleNotes),
             const SizedBox(height: 18),
-            PianoKeyboard(
-              showNoteNames: true,
-              highlightedNotes: _pressedNotes,
-              onKeyPressStarted: _onNoteStarted,
-              onKeyPressStopped: _onNoteStopped,
+            ValueListenableBuilder<bool>(
+              valueListenable: audio.keyboardCacheReadyListenable,
+              builder: (context, isAudioReady, child) {
+                return Column(
+                  children: [
+                    if (!isAudioReady) ...[
+                      const _LoadingPianoSoundsBanner(),
+                      const SizedBox(height: 12),
+                    ],
+                    RepaintBoundary(
+                      child: AbsorbPointer(
+                        absorbing: !isAudioReady,
+                        child: AnimatedOpacity(
+                          duration: const Duration(milliseconds: 180),
+                          opacity: isAudioReady ? 1 : 0.55,
+                          child: PianoKeyboard(
+                            showNoteNames: true,
+                            highlightedNotes: _pressedNotes,
+                            onKeyPressStarted: _onNoteStarted,
+                            onKeyPressStopped: _onNoteStopped,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 18),
             if (_finished)
@@ -106,6 +129,37 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _LoadingPianoSoundsBanner extends StatelessWidget {
+  const _LoadingPianoSoundsBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3B0),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Row(
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 3),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Loading piano sounds…',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
       ),
     );
   }

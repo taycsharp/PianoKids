@@ -13,23 +13,73 @@ class SongsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final progress = context.watch<ProgressProvider>();
+    final audio = context.read<AudioService>();
 
     return Scaffold(
       appBar: AppBar(title: const Text('Songs')),
-      body: ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          Text('Choose a song!', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 14),
-          for (final song in SongData.songs)
-            SongCard(
-              song: song,
-              completed: progress.progress.completedSongIds.contains(song.id),
-              onDemo: () => context.read<AudioService>().playSongDemo(song),
-              onPractice: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => SongPracticeScreen(song: song)),
+      body: ValueListenableBuilder<bool>(
+        valueListenable: audio.keyboardCacheReadyListenable,
+        builder: (context, isAudioReady, child) {
+          return ListView(
+            padding: const EdgeInsets.all(18),
+            children: [
+              Text(
+                'Choose a song!',
+                style: Theme.of(context).textTheme.headlineMedium,
               ),
+              if (!isAudioReady) ...[
+                const SizedBox(height: 12),
+                const _LoadingPianoSoundsBanner(),
+              ],
+              const SizedBox(height: 14),
+              for (final song in SongData.songs)
+                SongCard(
+                  song: song,
+                  completed: progress.progress.completedSongIds.contains(song.id),
+                  onDemo: isAudioReady
+                      ? () => context.read<AudioService>().playSongDemo(song)
+                      : null,
+                  onPractice: isAudioReady
+                      ? () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => SongPracticeScreen(song: song),
+                            ),
+                          )
+                      : null,
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _LoadingPianoSoundsBanner extends StatelessWidget {
+  const _LoadingPianoSoundsBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3B0),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Row(
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 3),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Loading piano sounds…',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
             ),
+          ),
         ],
       ),
     );

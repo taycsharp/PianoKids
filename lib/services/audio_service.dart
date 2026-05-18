@@ -86,7 +86,20 @@ class AudioService {
   };
 
   Future<void> playNote(String note) async {
-    await _playSongDemoNote(note, const Duration(milliseconds: 520));
+    await playPianoNote(note, duration: const Duration(milliseconds: 520));
+  }
+
+  /// Shared warm piano note path for lessons, songs, games, and live practice.
+  ///
+  /// Visible beginner notes reuse the same preloaded SoLoud sources as the Play
+  /// Piano keyboard so lesson and song screens do not generate or load WAV data
+  /// on the first press. If the shared cache cannot play a note, this safely
+  /// falls back to the existing generated piano tone path.
+  Future<void> playPianoNote(
+    String note, {
+    Duration duration = const Duration(milliseconds: 520),
+  }) async {
+    await _playPianoNoteForDuration(note, duration);
   }
 
   /// Plays one short, naturally decaying keyboard note.
@@ -96,27 +109,11 @@ class AudioService {
   /// and never stop audio on release, so chords and repeated taps can start as
   /// independent SoLoud voices.
   void playKeyboardNote(String note) {
-    final debugNote = _debugNoteName(note);
-
-    if (!_noteFrequencies.containsKey(note)) {
-      debugPrint('Keyboard note skipped: $debugNote has no visible-key frequency');
-      return;
-    }
-
-    final source = _keyboardSoundByNote[note];
-    if (!_isSoLoudReady || source == null) {
-      debugPrint('Keyboard note skipped: $debugNote SoLoud cache is not ready');
-      return;
-    }
-
-    if (_keyboardDebugLogs) {
-      final requestedAtMs = DateTime.now().millisecondsSinceEpoch;
-      debugPrint('Keyboard note triggered: $debugNote at ${requestedAtMs}ms');
-    }
-    _playSoLoudKeyboardNote(
-      debugNote: debugNote,
-      source: source,
-      sampleInfo: _keyboardSampleInfoByNote[note],
+    unawaited(
+      _playPreloadedPianoNote(
+        note,
+        waitForCache: false,
+      ).then<void>((_) {}),
     );
   }
 
@@ -148,13 +145,7 @@ class AudioService {
   }
 
   Future<void> playTap() async {
-    await _playGeneratedTone(
-      player: _effectsPlayer,
-      frequency: _noteFrequencies['C']!,
-      durationMs: 180,
-      volume: 0.34,
-      velocity: 0.58,
-    );
+    await playPianoNote('C', duration: const Duration(milliseconds: 180));
   }
 
   Future<void> playAnimalReward() async {
@@ -185,7 +176,7 @@ class AudioService {
         continue;
       }
 
-      await _playSongDemoNote(note, duration);
+      await _playPianoNoteForDuration(note, duration);
     }
   }
 
@@ -268,7 +259,7 @@ class AudioService {
     }
   }
 
-  void _playSoLoudKeyboardNote({
+  bool _playSoLoudKeyboardNote({
     required String debugNote,
     required AudioSource source,
     required _KeyboardSampleInfo? sampleInfo,
@@ -295,10 +286,12 @@ class AudioService {
       } else {
         _soloud.play(source, volume: 0.86);
       }
+      return true;
     } catch (error) {
       debugPrint(
         'Keyboard note skipped: $debugNote SoLoud play failed. Error: $error',
       );
+      return false;
     }
   }
 
@@ -319,7 +312,7 @@ class AudioService {
     }
   }
 
-  Future<void> _playSongDemoNote(String note, Duration duration) async {
+  Future<void> _playPianoNoteForDuration(String note, Duration duration) async {
     final debugNote = _debugNoteName(note);
     final frequency = _noteFrequencies[note];
     if (frequency == null) {
@@ -334,33 +327,94 @@ class AudioService {
         : math.min(_songGapMs, (noteMilliseconds * 0.12).round());
     final playMilliseconds = math.max(1, noteMilliseconds - gapMilliseconds);
 
+    final playedFromCache = await _playPreloadedPianoNote(
+      note,
+      waitForCache: true,
+    );
+    if (!playedFromCache) {
+      await _playFallbackPianoTone(
+        note: note,
+        frequency: frequency,
+        durationMs: playMilliseconds,
+      );
+    } else {
+      await Future<void>.delayed(Duration(milliseconds: playMilliseconds));
+    }
+    if (gapMilliseconds > 0) {
+      await Future<void>.delayed(Duration(milliseconds: gapMilliseconds));
+    }
+  }
+
+  Future<bool> _playPreloadedPianoNote(
+    String note, {
+    required bool waitForCache,
+  }) async {
+    final debugNote = _debugNoteName(note);
+
+    if (!_noteFrequencies.containsKey(note)) {
+      debugPrint('Piano note skipped: $debugNote has no visible-key frequency');
+      return false;
+    }
+
+    if (waitForCache && !_isSoLoudReady) {
+      try {
+        await keyboardCacheReady.timeout(_audioStartTimeout);
+      } catch (error) {
+        debugPrint('Piano cache wait skipped for $debugNote. Error: $error');
+      }
+    }
+
+    final source = _keyboardSoundByNote[note];
+    if (!_isSoLoudReady || source == null) {
+      if (_keyboardDebugLogs) {
+        debugPrint('Piano note skipped: $debugNote SoLoud cache is not ready');
+      }
+      return false;
+    }
+
+    if (_keyboardDebugLogs) {
+      final requestedAtMs = DateTime.now().millisecondsSinceEpoch;
+      debugPrint('Piano note triggered: $debugNote at ${requestedAtMs}ms');
+    }
+
+    return _playSoLoudKeyboardNote(
+      debugNote: debugNote,
+      source: source,
+      sampleInfo: _keyboardSampleInfoByNote[note],
+    );
+  }
+
+  Future<void> _playFallbackPianoTone({
+    required String note,
+    required double frequency,
+    required int durationMs,
+  }) async {
     final player = AudioPlayer();
     try {
       final assetPath = _noteFiles[note];
       var playedAsset = false;
       if (assetPath != null && _assetAvailabilityByNote[note] == true) {
-        debugPrint('Using bundled asset note: $debugNote');
+        if (_keyboardDebugLogs) {
+          debugPrint('Using bundled asset note: ${_debugNoteName(note)}');
+        }
         playedAsset = await _tryPlayAsset(player, note, assetPath);
-      } else if (assetPath != null) {
-        debugPrint('Asset unavailable, skipping asset attempt: $debugNote');
       }
 
       if (!playedAsset) {
-        debugPrint('Using generated note: $debugNote');
+        if (_keyboardDebugLogs) {
+          debugPrint('Using generated note: ${_debugNoteName(note)}');
+        }
         await _playGeneratedTone(
           player: player,
           frequency: frequency,
-          durationMs: playMilliseconds,
+          durationMs: durationMs,
           volume: 0.58,
           velocity: 0.72,
         );
       }
 
-      await Future<void>.delayed(Duration(milliseconds: playMilliseconds));
+      await Future<void>.delayed(Duration(milliseconds: durationMs));
       await player.stop();
-      if (gapMilliseconds > 0) {
-        await Future<void>.delayed(Duration(milliseconds: gapMilliseconds));
-      }
     } finally {
       await player.dispose();
     }
@@ -397,7 +451,9 @@ class AudioService {
         volume: volume,
         velocity: velocity,
       );
-      debugPrint('Generated WAV bytes length: ${sample.bytes.length}');
+      if (_keyboardDebugLogs) {
+        debugPrint('Generated WAV bytes length: ${sample.bytes.length}');
+      }
       await player
           .play(BytesSource(sample.bytes, mimeType: 'audio/wav'))
           .timeout(_audioStartTimeout);

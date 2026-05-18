@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// A beginner-friendly one-octave piano keyboard.
@@ -10,8 +11,11 @@ import 'package:flutter/material.dart';
 /// that C is found just to the left of the group of two black keys.
 class PianoKeyboard extends StatelessWidget {
   final bool showNoteNames;
-  final ValueChanged<String> onNotePressed;
+  final ValueChanged<String>? onNotePressed;
+  final ValueChanged<String>? onNoteStarted;
+  final ValueChanged<String>? onNoteStopped;
   final String? highlightedNote;
+  final Set<String> highlightedNotes;
 
   static const whiteNotes = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'High C'];
   static const blackNotes = ['C#', 'D#', 'F#', 'G#', 'A#'];
@@ -28,14 +32,30 @@ class PianoKeyboard extends StatelessWidget {
 
   const PianoKeyboard({
     super.key,
-    required this.onNotePressed,
+    this.onNotePressed,
+    this.onNoteStarted,
+    this.onNoteStopped,
     this.showNoteNames = true,
     this.highlightedNote,
+    this.highlightedNotes = const {},
   });
 
   static String displayName(String note) {
     if (note == 'High C') return 'C';
     return note.replaceAll('#', '♯');
+  }
+
+  bool _isHighlighted(String note) {
+    return note == highlightedNote || highlightedNotes.contains(note);
+  }
+
+  void _startNote(String note) {
+    onNotePressed?.call(note);
+    onNoteStarted?.call(note);
+  }
+
+  void _stopNote(String note) {
+    onNoteStopped?.call(note);
   }
 
   @override
@@ -62,8 +82,9 @@ class PianoKeyboard extends StatelessWidget {
                       child: _WhiteKey(
                         note: note,
                         showName: showNoteNames,
-                        isHighlighted: note == highlightedNote,
-                        onTap: () => onNotePressed(note),
+                        isHighlighted: _isHighlighted(note),
+                        onStart: () => _startNote(note),
+                        onStop: () => _stopNote(note),
                       ),
                     ),
                 ],
@@ -77,8 +98,9 @@ class PianoKeyboard extends StatelessWidget {
                   child: _BlackKey(
                     note: entry.key,
                     showName: showNoteNames,
-                    isHighlighted: entry.key == highlightedNote,
-                    onTap: () => onNotePressed(entry.key),
+                    isHighlighted: _isHighlighted(entry.key),
+                    onStart: () => _startNote(entry.key),
+                    onStop: () => _stopNote(entry.key),
                   ),
                 ),
             ],
@@ -93,24 +115,27 @@ class _WhiteKey extends StatelessWidget {
   final String note;
   final bool showName;
   final bool isHighlighted;
-  final VoidCallback onTap;
+  final VoidCallback onStart;
+  final VoidCallback onStop;
 
   const _WhiteKey({
     required this.note,
     required this.showName,
     required this.isHighlighted,
-    required this.onTap,
+    required this.onStart,
+    required this.onStop,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 1.5),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
+      child: _PressablePianoKey(
+        note: note,
+        onStart: onStart,
+        onStop: onStop,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
+          duration: const Duration(milliseconds: 90),
           decoration: BoxDecoration(
             gradient: isHighlighted
                 ? const LinearGradient(
@@ -158,61 +183,125 @@ class _BlackKey extends StatelessWidget {
   final String note;
   final bool showName;
   final bool isHighlighted;
-  final VoidCallback onTap;
+  final VoidCallback onStart;
+  final VoidCallback onStop;
 
   const _BlackKey({
     required this.note,
     required this.showName,
     required this.isHighlighted,
-    required this.onTap,
+    required this.onStart,
+    required this.onStop,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: isHighlighted
-                  ? const [Color(0xFF8EECF5), Color(0xFF4D96FF)]
-                  : const [Color(0xFF222233), Color(0xFF050510)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-            borderRadius: const BorderRadius.vertical(
-              bottom: Radius.circular(14),
-              top: Radius.circular(9),
-            ),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 10,
-                offset: const Offset(0, 6),
-              ),
-            ],
+    return _PressablePianoKey(
+      note: note,
+      onStart: onStart,
+      onStop: onStop,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 90),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: isHighlighted
+                ? const [Color(0xFF8EECF5), Color(0xFF4D96FF)]
+                : const [Color(0xFF222233), Color(0xFF050510)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
           ),
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Text(
-                showName ? PianoKeyboard.displayName(note) : '⭐',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w900,
-                ),
+          borderRadius: const BorderRadius.vertical(
+            bottom: Radius.circular(14),
+            top: Radius.circular(9),
+          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 10,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Text(
+              showName ? PianoKeyboard.displayName(note) : '⭐',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PressablePianoKey extends StatefulWidget {
+  final String note;
+  final Widget child;
+  final VoidCallback onStart;
+  final VoidCallback onStop;
+
+  const _PressablePianoKey({
+    required this.note,
+    required this.child,
+    required this.onStart,
+    required this.onStop,
+  });
+
+  @override
+  State<_PressablePianoKey> createState() => _PressablePianoKeyState();
+}
+
+class _PressablePianoKeyState extends State<_PressablePianoKey> {
+  final Set<int> _activePointers = {};
+
+  void _handleDown(PointerDownEvent event) {
+    final wasIdle = _activePointers.isEmpty;
+    _activePointers.add(event.pointer);
+    if (wasIdle) {
+      debugPrint('Pointer down ${_debugNoteName(widget.note)}');
+      widget.onStart();
+    }
+  }
+
+  void _handleEnd(int pointer) {
+    if (!_activePointers.remove(pointer)) return;
+    if (_activePointers.isEmpty) {
+      debugPrint('Pointer up ${_debugNoteName(widget.note)}');
+      widget.onStop();
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_activePointers.isNotEmpty) widget.onStop();
+    super.dispose();
+  }
+
+  String _debugNoteName(String note) {
+    if (note == 'High C') return 'C5';
+    return '${note}4';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: _handleDown,
+      onPointerUp: (event) => _handleEnd(event.pointer),
+      onPointerCancel: (event) => _handleEnd(event.pointer),
+      child: Semantics(
+        button: true,
+        label: '${PianoKeyboard.displayName(widget.note)} piano key',
+        child: widget.child,
       ),
     );
   }

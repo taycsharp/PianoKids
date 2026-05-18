@@ -20,21 +20,18 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
   int _currentIndex = 0;
   int _mistakes = 0;
   String _message = 'Start the song!';
-  String? _highlighted;
+  final Set<String> _pressedNotes = {};
 
   bool get _finished => _currentIndex >= widget.song.notes.length;
 
   String get _currentNote => _finished ? widget.song.notes.last : widget.song.notes[_currentIndex];
 
-  Future<void> _onNotePressed(String note) async {
+  Future<void> _onNoteStarted(String note) async {
     final audio = context.read<AudioService>();
     final progressProvider = context.read<ProgressProvider>();
 
-    await audio.playNote(note);
-
-    setState(() => _highlighted = note);
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    if (mounted) setState(() => _highlighted = null);
+    setState(() => _pressedNotes.add(note));
+    await audio.startNote(note);
 
     if (_finished) return;
 
@@ -59,6 +56,11 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
         _message = 'Almost! Try $_currentNote';
       });
     }
+  }
+
+  Future<void> _onNoteStopped(String note) async {
+    setState(() => _pressedNotes.remove(note));
+    await context.read<AudioService>().stopNote(note);
   }
 
   @override
@@ -93,8 +95,9 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
             const SizedBox(height: 18),
             PianoKeyboard(
               showNoteNames: true,
-              highlightedNote: _highlighted,
-              onNotePressed: _onNotePressed,
+              highlightedNotes: _pressedNotes,
+              onNoteStarted: _onNoteStarted,
+              onNoteStopped: _onNoteStopped,
             ),
             const SizedBox(height: 18),
             if (_finished)

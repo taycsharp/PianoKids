@@ -15,19 +15,19 @@ class PianoScreen extends StatefulWidget {
 class _PianoScreenState extends State<PianoScreen> {
   bool _showNames = true;
   bool _funMode = true;
-  String? _highlighted;
+  final Set<String> _pressedNotes = {};
   String _message = 'Play any note!';
   final List<String> _sequence = [];
   final List<String> _rewardSequence = ['C', 'D', 'E'];
 
-  Future<void> _play(String note) async {
+  Future<void> _startNote(String note) async {
     setState(() {
-      _highlighted = note;
+      _pressedNotes.add(note);
       _message = 'You played $note!';
     });
 
     final audio = context.read<AudioService>();
-    await audio.playNote(note);
+    await audio.startNote(note);
 
     if (_funMode) {
       _sequence.add(note);
@@ -37,9 +37,11 @@ class _PianoScreenState extends State<PianoScreen> {
         if (mounted) setState(() => _message = 'Animal reward! 🐶 ⭐');
       }
     }
+  }
 
-    await Future<void>.delayed(const Duration(milliseconds: 170));
-    if (mounted) setState(() => _highlighted = null);
+  Future<void> _stopNote(String note) async {
+    setState(() => _pressedNotes.remove(note));
+    await context.read<AudioService>().stopNote(note);
   }
 
   @override
@@ -70,8 +72,9 @@ class _PianoScreenState extends State<PianoScreen> {
             const SizedBox(height: 12),
             PianoKeyboard(
               showNoteNames: _showNames,
-              highlightedNote: _highlighted,
-              onNotePressed: _play,
+              highlightedNotes: _pressedNotes,
+              onNoteStarted: _startNote,
+              onNoteStopped: _stopNote,
             ),
           ],
         ),

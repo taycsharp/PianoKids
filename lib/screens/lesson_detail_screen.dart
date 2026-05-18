@@ -30,7 +30,7 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
   int _mistakes = 0;
   String _feedback = 'Tap the note!';
   bool _completed = false;
-  String? _highlightedNote;
+  final Set<String> _pressedNotes = {};
 
   String? get _targetNote {
     if (widget.lesson.requiredNotes.isEmpty) return null;
@@ -38,13 +38,10 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
     return widget.lesson.requiredNotes[_currentTargetIndex];
   }
 
-  Future<void> _onNotePressed(String note) async {
+  Future<void> _onNoteStarted(String note) async {
     final audio = context.read<AudioService>();
-    await audio.playNote(note);
-
-    setState(() => _highlightedNote = note);
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    if (mounted) setState(() => _highlightedNote = null);
+    setState(() => _pressedNotes.add(note));
+    await audio.startNote(note);
 
     final target = _targetNote;
     if (target == null) return;
@@ -65,6 +62,11 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
         _feedback = 'Almost! Try ${_displayNote(target)}';
       });
     }
+  }
+
+  Future<void> _onNoteStopped(String note) async {
+    setState(() => _pressedNotes.remove(note));
+    await context.read<AudioService>().stopNote(note);
   }
 
   String _displayNote(String note) => PianoKeyboard.displayName(note);
@@ -185,8 +187,9 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
               const SizedBox(height: 16),
               PianoKeyboard(
                 showNoteNames: true,
-                highlightedNote: _highlightedNote,
-                onNotePressed: _onNotePressed,
+                highlightedNotes: _pressedNotes,
+                onNoteStarted: _onNoteStarted,
+                onNoteStopped: _onNoteStopped,
               ),
             ],
             const SizedBox(height: 18),

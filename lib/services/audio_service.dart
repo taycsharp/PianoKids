@@ -42,7 +42,7 @@ class AudioService {
 
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
-  static const int _keyboardNoteDurationMs = 500;
+  static const int _keyboardNoteDurationMs = 1200;
   static const bool _keyboardDebugLogs = false;
   static const bool _useDiagnosticClickTone = false;
   static const Duration _audioStartTimeout = Duration(milliseconds: 900);
@@ -86,7 +86,7 @@ class AudioService {
   };
 
   Future<void> playNote(String note) async {
-    await _playSongDemoNote(note, const Duration(milliseconds: 420));
+    await _playSongDemoNote(note, const Duration(milliseconds: 520));
   }
 
   /// Plays one short, naturally decaying keyboard note.
@@ -150,15 +150,15 @@ class AudioService {
   Future<void> playTap() async {
     await _playGeneratedTone(
       player: _effectsPlayer,
-      frequency: 880,
-      durationMs: 100,
-      volume: 0.26,
-      velocity: 0.45,
+      frequency: _noteFrequencies['C']!,
+      durationMs: 180,
+      volume: 0.34,
+      velocity: 0.58,
     );
   }
 
   Future<void> playAnimalReward() async {
-    await _playGeneratedMelody([392, 523.25, 659.25, 523.25], noteDurationMs: 140);
+    await _playGeneratedMelody([392, 523.25, 659.25, 523.25], noteDurationMs: 190);
   }
 
   Future<void> playSongNotes(List<String> notes) async {
@@ -351,8 +351,8 @@ class AudioService {
           player: player,
           frequency: frequency,
           durationMs: playMilliseconds,
-          volume: 0.54,
-          velocity: 0.68,
+          volume: 0.58,
+          velocity: 0.72,
         );
       }
 
@@ -375,8 +375,8 @@ class AudioService {
         player: _effectsPlayer,
         frequency: frequency,
         durationMs: noteDurationMs,
-        volume: 0.38,
-        velocity: 0.62,
+        volume: 0.46,
+        velocity: 0.66,
       );
       await Future<void>.delayed(const Duration(milliseconds: 45));
     }
@@ -493,14 +493,14 @@ class AudioService {
     final keyPosition = ((frequency - 261.63) / (523.25 - 261.63))
         .clamp(0.0, 1.0);
     final mainDecay = liveKeyboard
-        ? 7.8 + keyPosition * 2.2
-        : 2.0 + keyPosition * 1.25;
+        ? 8.4 + keyPosition * 2.4
+        : 2.15 + keyPosition * 1.28;
     final bodyDecay = liveKeyboard
-        ? 12.5 + keyPosition * 3.0
-        : 0.9 + keyPosition * 0.65;
+        ? 13.8 + keyPosition * 3.2
+        : 1.08 + keyPosition * 0.7;
     final brightness = liveKeyboard
-        ? 1.08 + keyPosition * 0.32
-        : 0.72 + keyPosition * 0.22;
+        ? 0.98 + keyPosition * 0.28
+        : 0.88 + keyPosition * 0.22;
 
     for (var i = 0; i < totalSamples; i++) {
       final t = i / _sampleRate;
@@ -512,11 +512,11 @@ class AudioService {
           ? 0.9 + 0.1 * (1.0 - math.exp(-t * 1800.0))
           : 1.0 - math.exp(-t * 420.0);
       final stringDecay = liveKeyboard
-          ? 0.95 * math.exp(-mainDecay * progress) +
-              0.05 * math.exp(-bodyDecay * progress)
-          : 0.74 * math.exp(-mainDecay * progress) +
-              0.26 * math.exp(-bodyDecay * progress);
-      final releaseStart = liveKeyboard ? 0.62 : 0.86;
+          ? 0.96 * math.exp(-mainDecay * progress) +
+              0.04 * math.exp(-bodyDecay * progress)
+          : 0.78 * math.exp(-mainDecay * progress) +
+              0.22 * math.exp(-bodyDecay * progress);
+      final releaseStart = liveKeyboard ? 0.54 : 0.86;
       final releaseLength = 1.0 - releaseStart;
       final release = progress > releaseStart
           ? (1.0 - progress) / releaseLength
@@ -552,8 +552,8 @@ class AudioService {
         liveKeyboard: liveKeyboard,
       );
 
-      final hammerLeft = liveKeyboard ? hammer * 1.05 : hammer * 0.55;
-      final hammerRight = liveKeyboard ? hammer * 0.9 : hammer * 0.45;
+      final hammerLeft = liveKeyboard ? hammer * 0.9 : hammer * 0.58;
+      final hammerRight = liveKeyboard ? hammer * 0.78 : hammer * 0.48;
       final leftRaw = ((left + body) * envelope + hammerLeft) * volume;
       final rightRaw = ((right + body) * envelope + hammerRight) * volume;
       normalizedSamples[i * _channels] = leftRaw;
@@ -569,8 +569,8 @@ class AudioService {
       }
     }
 
-    final targetPeak = liveKeyboard ? 0.9 : 0.78;
-    final normalizeGain = peak <= 0 ? 1.0 : math.min(2.2, targetPeak / peak);
+    final targetPeak = liveKeyboard ? 0.82 : 0.8;
+    final normalizeGain = peak <= 0 ? 1.0 : math.min(2.1, targetPeak / peak);
     for (var i = 0; i < totalSamples; i++) {
       final leftValue = _toInt16(
         _softClip(normalizedSamples[i * _channels] * normalizeGain),
@@ -620,12 +620,12 @@ class AudioService {
     for (final detune in detunes) {
       final f = frequency * detune;
       sample += _harmonic(f, t, 1, 1.00);
-      sample += _harmonic(f, t, 2, 0.48 * brightness);
-      sample += _harmonic(f, t, 3, 0.24 * brightness);
-      sample += _harmonic(f, t, 4, 0.12 * brightness);
-      sample += _harmonic(f, t, 5, 0.065 * brightness);
-      sample += _harmonic(f, t, 6, 0.036 * brightness);
-      sample += _harmonic(f, t, 8, 0.018 * brightness);
+      sample += _harmonic(f, t, 2, 0.42 * brightness);
+      sample += _harmonic(f, t, 3, 0.22 * brightness);
+      sample += _harmonic(f, t, 4, 0.095 * brightness);
+      sample += _harmonic(f, t, 5, 0.052 * brightness);
+      sample += _harmonic(f, t, 6, 0.028 * brightness);
+      sample += _harmonic(f, t, 8, 0.012 * brightness);
     }
 
     // Velocity changes timbre: harder notes are slightly brighter.
@@ -647,12 +647,12 @@ class AudioService {
     double velocity, {
     bool liveKeyboard = false,
   }) {
-    final transient = math.exp(-t * (liveKeyboard ? 155.0 : 95.0));
+    final transient = math.exp(-t * (liveKeyboard ? 170.0 : 105.0));
     final clickTone = math.sin(2 * math.pi * frequency * 7.0 * t);
     final woodyTap =
-        math.sin(2 * math.pi * 2300.0 * t) * (liveKeyboard ? 0.62 : 0.35);
-    final softNoise = _deterministicNoise(t) * (liveKeyboard ? 0.2 : 0.18);
-    final amount = liveKeyboard ? 0.3 : 0.13;
+        math.sin(2 * math.pi * 1900.0 * t) * (liveKeyboard ? 0.42 : 0.28);
+    final softNoise = _deterministicNoise(t) * (liveKeyboard ? 0.14 : 0.12);
+    final amount = liveKeyboard ? 0.24 : 0.12;
     return transient * velocity * amount * (clickTone + woodyTap + softNoise);
   }
 
@@ -664,8 +664,8 @@ class AudioService {
   }) {
     // Subtle resonances give a small soundboard/body feeling.
     final bodyAmount =
-        (liveKeyboard ? 0.004 : 0.026) * (1.0 - keyPosition * 0.35);
-    final bodyDecay = math.exp(-t * (liveKeyboard ? 24.0 : 2.2));
+        (liveKeyboard ? 0.008 : 0.024) * (1.0 - keyPosition * 0.35);
+    final bodyDecay = math.exp(-t * (liveKeyboard ? 18.0 : 2.35));
     final body1 = math.sin(2 * math.pi * (frequency * 0.5) * t) * 0.55;
     final body2 = math.sin(2 * math.pi * (frequency * 1.5) * t) * 0.25;
     final body3 = math.sin(2 * math.pi * 176.0 * t) * 0.20;

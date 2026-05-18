@@ -114,56 +114,79 @@ class _PianoScreenState extends State<PianoScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Play Piano')),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ValueListenableBuilder<String>(
-                valueListenable: _message,
-                builder: (context, message, child) {
-                  return StarReward(stars: 1, message: message);
-                },
-              ),
-              const SizedBox(height: 18),
-              SwitchListTile(
-                value: _showNames,
-                onChanged: (value) => setState(() => _showNames = value),
-                title: const Text(
-                  'Show note names',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                secondary: const Icon(Icons.abc),
-              ),
-              SwitchListTile(
-                value: _funMode,
-                onChanged: (value) => setState(() => _funMode = value),
-                title: const Text(
-                  'Fun reward mode',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                subtitle: const Text('Try C-D-E, then C♯-D♯!'),
-                secondary: const Icon(Icons.pets),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: audio.keyboardCacheReadyListenable,
-                  builder: (context, isKeyboardReady, child) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (!isKeyboardReady) ...[
-                          const _LoadingPianoSoundsCard(),
-                          const SizedBox(height: 10),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompactHeight = constraints.maxHeight < 560;
+            final keyboardHeight = isCompactHeight ? 200.0 : 220.0;
+
+            return Padding(
+              padding: EdgeInsets.all(isCompactHeight ? 14 : 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          ValueListenableBuilder<String>(
+                            valueListenable: _message,
+                            builder: (context, message, child) {
+                              return StarReward(stars: 1, message: message);
+                            },
+                          ),
+                          SizedBox(height: isCompactHeight ? 10 : 18),
+                          SwitchListTile(
+                            value: _showNames,
+                            onChanged: (value) =>
+                                setState(() => _showNames = value),
+                            title: const Text(
+                              'Show note names',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            secondary: const Icon(Icons.abc),
+                          ),
+                          SwitchListTile(
+                            value: _funMode,
+                            onChanged: (value) =>
+                                setState(() => _funMode = value),
+                            title: const Text(
+                              'Fun reward mode',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            subtitle: const Text('Try C-D-E, then C♯-D♯!'),
+                            secondary: const Icon(Icons.pets),
+                          ),
+                          ValueListenableBuilder<bool>(
+                            valueListenable: audio.keyboardCacheReadyListenable,
+                            builder: (context, isKeyboardReady, child) {
+                              if (isKeyboardReady) return const SizedBox.shrink();
+                              return Padding(
+                                padding: EdgeInsets.only(
+                                  top: isCompactHeight ? 8 : 12,
+                                ),
+                                child: const _LoadingPianoSoundsCard(),
+                              );
+                            },
+                          ),
                         ],
-                        RepaintBoundary(
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: isCompactHeight ? 10 : 12),
+                  SizedBox(
+                    height: keyboardHeight,
+                    child: ValueListenableBuilder<bool>(
+                      valueListenable: audio.keyboardCacheReadyListenable,
+                      builder: (context, isKeyboardReady, child) {
+                        return RepaintBoundary(
                           child: AbsorbPointer(
                             absorbing: !isKeyboardReady,
                             child: AnimatedOpacity(
                               duration: const Duration(milliseconds: 180),
                               opacity: isKeyboardReady ? 1 : 0.55,
                               child: PianoKeyboard(
+                                height: keyboardHeight,
                                 showNoteNames: _showNames,
                                 highlightedNotesListenable: _pressedNotes,
                                 onKeyPressStarted: _startNote,
@@ -171,14 +194,14 @@ class _PianoScreenState extends State<PianoScreen> {
                               ),
                             ),
                           ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );

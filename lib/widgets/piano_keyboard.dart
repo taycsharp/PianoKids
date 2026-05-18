@@ -21,6 +21,7 @@ class PianoKeyboard extends StatelessWidget {
   final String? highlightedNote;
   final Set<String> highlightedNotes;
   final ValueListenable<Set<String>>? highlightedNotesListenable;
+  final double height;
 
   static const bool _keyboardDebugLogs = false;
 
@@ -48,6 +49,7 @@ class PianoKeyboard extends StatelessWidget {
     this.highlightedNote,
     this.highlightedNotes = const {},
     this.highlightedNotesListenable,
+    this.height = 220,
   });
 
   static String displayName(String note) {
@@ -76,9 +78,11 @@ class PianoKeyboard extends StatelessWidget {
       builder: (context, constraints) {
         final keyWidth = constraints.maxWidth / whiteNotes.length;
         final blackKeyWidth = keyWidth * 0.58;
+        final keyboardHeight = height.clamp(190.0, 260.0).toDouble();
+        final blackKeyHeight = keyboardHeight * 0.6;
 
         return Container(
-          height: 220,
+          height: keyboardHeight,
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: const Color(0xFF34344A),
@@ -113,7 +117,7 @@ class PianoKeyboard extends StatelessWidget {
                       left: entry.value * keyWidth - blackKeyWidth / 2,
                       top: 0,
                       width: blackKeyWidth,
-                      height: 132,
+                      height: blackKeyHeight,
                       child: _BlackKey(
                         note: entry.key,
                         showName: showNoteNames,

@@ -1,8 +1,11 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../models/song.dart';
 
@@ -17,9 +20,18 @@ import '../models/song.dart';
 /// Steinway, Yamaha, or any other brand. It is a brand-inspired, synthetic,
 /// wood-piano-like tone designed for a kid-friendly MVP.
 class AudioService {
+  AudioService() {
+    unawaited(_loadAssetManifest());
+  }
+
   final AudioPlayer _effectsPlayer = AudioPlayer();
   final Map<String, AudioPlayer> _activeVoices = {};
+  final Map<String, bool> _assetAvailabilityByNote = {};
   var _songDemoToken = 0;
+
+  static const double _demoTempoMultiplier = 1.0;
+  static const int _songGapMs = 45;
+  static const int _heldNoteGeneratedDurationMs = 8000;
 
   static const int _sampleRate = 44100;
   static const int _channels = 2;
@@ -68,26 +80,29 @@ class AudioService {
   Future<void> startNote(String note) async {
     if (_activeVoices.containsKey(note)) return;
 
+    final frequency = _noteFrequencies[note];
+    if (frequency == null) {
+      debugPrint('No generated frequency for note: $note');
+      return;
+    }
+
     final voice = AudioPlayer();
     _activeVoices[note] = voice;
 
     final assetPath = _noteFiles[note];
-    if (assetPath != null) {
-      final playedAsset = await _tryPlayAsset(voice, assetPath);
+    if (assetPath != null && _assetAvailabilityByNote[note] == true) {
+      debugPrint('Using bundled asset note: ${_debugNoteName(note)}');
+      final playedAsset = await _tryPlayAsset(voice, note, assetPath);
       if (playedAsset) return;
+    } else if (assetPath != null) {
+      debugPrint('Asset unavailable, skipping asset attempt: ${_debugNoteName(note)}');
     }
 
-    final frequency = _noteFrequencies[note];
-    if (frequency == null) {
-      debugPrint('No generated frequency for note: $note');
-      await stopNote(note);
-      return;
-    }
-
+    debugPrint('Using generated note: ${_debugNoteName(note)}');
     await _playGeneratedTone(
       player: voice,
       frequency: frequency,
-      durationMs: 12000,
+      durationMs: _heldNoteGeneratedDurationMs,
       volume: 0.58,
       velocity: 0.72,
     );
@@ -138,22 +153,17 @@ class AudioService {
     for (final step in song.steps) {
       if (token != _songDemoToken) return;
 
-      final duration = song.durationForBeats(step.beats);
+      final duration = song.durationForBeats(
+        step.beats,
+        tempoMultiplier: _demoTempoMultiplier,
+      );
       final note = step.note;
       if (note == null) {
         await Future<void>.delayed(duration);
         continue;
       }
 
-      await startNote(note);
-      final heldMilliseconds = (duration.inMilliseconds * 0.88).round();
-      await Future<void>.delayed(Duration(milliseconds: heldMilliseconds));
-      await stopNote(note);
-
-      final restMilliseconds = duration.inMilliseconds - heldMilliseconds;
-      if (restMilliseconds > 0) {
-        await Future<void>.delayed(Duration(milliseconds: restMilliseconds));
-      }
+      await _playSongDemoNote(note, duration);
     }
   }
 
@@ -164,18 +174,80 @@ class AudioService {
     }
   }
 
-  Future<bool> _tryPlayAsset(AudioPlayer player, String assetPath) async {
+  Future<void> _loadAssetManifest() async {
     try {
-      await player.stop();
+      final manifestJson = await rootBundle.loadString('AssetManifest.json');
+      final manifest = jsonDecode(manifestJson) as Map<String, dynamic>;
+      final availableAssets = manifest.keys.toSet();
+
+      for (final entry in _noteFiles.entries) {
+        final assetPath = entry.value;
+        final bundledPath = 'assets/$assetPath';
+        _assetAvailabilityByNote[entry.key] =
+            availableAssets.contains(assetPath) || availableAssets.contains(bundledPath);
+      }
+    } catch (error) {
+      debugPrint('Asset manifest unavailable. Using generated piano tones. Error: $error');
+      for (final note in _noteFiles.keys) {
+        _assetAvailabilityByNote[note] = false;
+      }
+    }
+  }
+
+  Future<bool> _tryPlayAsset(AudioPlayer player, String note, String assetPath) async {
+    try {
       await player.play(AssetSource(assetPath));
       return true;
     } catch (error) {
-      // Missing assets should never crash the app during MVP development.
-      debugPrint(
-        'Asset audio skipped. Using generated piano tone instead. '
-        'Missing or invalid asset: $assetPath. Error: $error',
-      );
+      _assetAvailabilityByNote[note] = false;
+      debugPrint('Asset unavailable, skipping asset attempt: ${_debugNoteName(note)}');
       return false;
+    }
+  }
+
+  Future<void> _playSongDemoNote(String note, Duration duration) async {
+    final frequency = _noteFrequencies[note];
+    if (frequency == null) {
+      debugPrint('No generated frequency for note: $note');
+      await Future<void>.delayed(duration);
+      return;
+    }
+
+    final noteMilliseconds = duration.inMilliseconds;
+    final gapMilliseconds = noteMilliseconds <= _songGapMs
+        ? 0
+        : math.min(_songGapMs, (noteMilliseconds * 0.12).round());
+    final playMilliseconds = math.max(1, noteMilliseconds - gapMilliseconds);
+
+    final player = AudioPlayer();
+    try {
+      final assetPath = _noteFiles[note];
+      var playedAsset = false;
+      if (assetPath != null && _assetAvailabilityByNote[note] == true) {
+        debugPrint('Using bundled asset note: ${_debugNoteName(note)}');
+        playedAsset = await _tryPlayAsset(player, note, assetPath);
+      } else if (assetPath != null) {
+        debugPrint('Asset unavailable, skipping asset attempt: ${_debugNoteName(note)}');
+      }
+
+      if (!playedAsset) {
+        debugPrint('Using generated note: ${_debugNoteName(note)}');
+        await _playGeneratedTone(
+          player: player,
+          frequency: frequency,
+          durationMs: playMilliseconds,
+          volume: 0.54,
+          velocity: 0.68,
+        );
+      }
+
+      await Future<void>.delayed(Duration(milliseconds: playMilliseconds));
+      await player.stop();
+      if (gapMilliseconds > 0) {
+        await Future<void>.delayed(Duration(milliseconds: gapMilliseconds));
+      }
+    } finally {
+      await player.dispose();
     }
   }
 
@@ -215,6 +287,11 @@ class AudioService {
       // Audio should never block the child from using the app.
       debugPrint('Generated piano tone skipped. Error: $error');
     }
+  }
+
+  String _debugNoteName(String note) {
+    if (note == 'High C') return 'C5';
+    return '${note}4';
   }
 
   /// Builds a small stereo WAV file that is warmer and more natural than a beep.

@@ -6,7 +6,7 @@ class SongData {
       id: 'mary_lamb',
       title: 'Mary Had a Little Lamb',
       difficulty: 'Easy',
-      tempoBpm: 96,
+      tempoBpm: 112,
       description: 'A gentle song using C, D, E, and G.',
       steps: [
         SongStep.note('E'),
@@ -30,7 +30,7 @@ class SongData {
       id: 'twinkle',
       title: 'Twinkle Twinkle Little Star',
       difficulty: 'Easy',
-      tempoBpm: 88,
+      tempoBpm: 110,
       description: 'A famous star song for beginners.',
       steps: [
         SongStep.note('C'),
@@ -80,7 +80,7 @@ class SongData {
       id: 'ode_to_joy',
       title: 'Ode to Joy',
       difficulty: 'Easy+',
-      tempoBpm: 104,
+      tempoBpm: 110,
       description: 'A simple beginner version.',
       steps: [
         SongStep.note('E'),

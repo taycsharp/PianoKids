@@ -33,8 +33,9 @@ class Song {
           if (step.note != null) step.note!,
       ];
 
-  Duration durationForBeats(double beats) {
-    final milliseconds = (60000 / tempoBpm * beats).round();
+  Duration durationForBeats(double beats, {double tempoMultiplier = 1}) {
+    final effectiveTempo = tempoBpm * tempoMultiplier;
+    final milliseconds = (60000 / effectiveTempo * beats).round();
     return Duration(milliseconds: milliseconds);
   }
 }

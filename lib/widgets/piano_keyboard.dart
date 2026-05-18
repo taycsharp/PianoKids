@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// A beginner-friendly one-octave piano keyboard.
@@ -265,18 +266,29 @@ class _PressablePianoKeyState extends State<_PressablePianoKey> {
   void _handleDown(PointerDownEvent event) {
     final wasIdle = _activePointers.isEmpty;
     _activePointers.add(event.pointer);
-    if (wasIdle) widget.onStart();
+    if (wasIdle) {
+      debugPrint('Pointer down ${_debugNoteName(widget.note)}');
+      widget.onStart();
+    }
   }
 
   void _handleEnd(int pointer) {
     if (!_activePointers.remove(pointer)) return;
-    if (_activePointers.isEmpty) widget.onStop();
+    if (_activePointers.isEmpty) {
+      debugPrint('Pointer up ${_debugNoteName(widget.note)}');
+      widget.onStop();
+    }
   }
 
   @override
   void dispose() {
     if (_activePointers.isNotEmpty) widget.onStop();
     super.dispose();
+  }
+
+  String _debugNoteName(String note) {
+    if (note == 'High C') return 'C5';
+    return '${note}4';
   }
 
   @override

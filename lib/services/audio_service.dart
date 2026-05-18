@@ -41,7 +41,8 @@ class AudioService {
   static const int _sampleRate = 44100;
   static const int _channels = 2;
   static const int _bitsPerSample = 16;
-  static const int _maxActiveKeyboardVoices = 48;
+  static const int _maxActiveKeyboardVoices = 64;
+  static const int _keyboardAttackDebugWindowMs = 120;
 
   static const Map<String, String> _noteFiles = {
     'C': 'audio/notes/c.mp3',
@@ -88,9 +89,41 @@ class AudioService {
       return;
     }
 
+    unawaited(_startKeyboardVoice(pianoNote, source));
+  }
+
+  Future<void> _startKeyboardVoice(PianoNote pianoNote, AudioSource source) async {
+    final soloud = SoLoud.instance;
+    final volume = _keyboardVolumeFor(pianoNote);
+    final durationMs = _keyboardDurationFor(pianoNote);
+
     try {
-      SoLoud.instance.play(source, volume: _keyboardVolumeFor(pianoNote));
-      debugPrint('Soloud voice started: ${pianoNote.name}');
+      final handle = await soloud.play(
+        source,
+        volume: volume,
+        looping: false,
+        paused: false,
+      );
+
+      try {
+        // Do not protect older keyboard notes. If SoLoud must choose audible
+        // voices, the newest tap should be free to win by normal loudness rather
+        // than being blocked by held or decaying notes. Killing inaudible voices
+        // also prevents a backlog of silent work during fast kid-style tapping.
+        soloud.setProtectVoice(handle, false);
+        soloud.setInaudibleBehavior(handle, false, true);
+      } catch (error) {
+        debugPrint('Soloud voice tuning skipped for ${pianoNote.name}. Error: $error');
+      }
+
+      final activeVoices = soloud.getActiveVoiceCount();
+      final voiceCount = soloud.getVoiceCount();
+      debugPrint(
+        'Soloud voice started: ${pianoNote.name} '
+        'handle=$handle activeVoices=$activeVoices voiceCount=$voiceCount '
+        'volume=${volume.toStringAsFixed(2)} sampleMs=$durationMs '
+        'clearAttackMs=$_keyboardAttackDebugWindowMs',
+      );
     } catch (error) {
       debugPrint('Keyboard piano note skipped for ${pianoNote.name}. Error: $error');
     }
@@ -205,6 +238,10 @@ class AudioService {
         await soloud.init().timeout(_soloudLoadTimeout);
       }
       soloud.setMaxActiveVoiceCount(_maxActiveKeyboardVoices);
+      debugPrint(
+        'SoLoud keyboard voices configured: '
+        'maxActiveVoices=${soloud.getMaxActiveVoiceCount()}',
+      );
 
       for (final pianoNote in PianoNote.standard88) {
         final bytes = _buildWarmWoodPianoWav(
@@ -213,6 +250,7 @@ class AudioService {
           durationMs: _keyboardDurationFor(pianoNote),
           volume: _generationVolumeFor(pianoNote),
           velocity: 0.72,
+          keyboardTapMode: true,
         );
         final source = await soloud
             .loadMem(_keyboardToneFileName(pianoNote.name), bytes)
@@ -351,21 +389,21 @@ class AudioService {
   }
 
   int _keyboardDurationFor(PianoNote note) {
-    if (note.midiNumber <= 47) return 1200; // A0-B2: warmer, longer decay.
-    if (note.midiNumber >= 84) return 850; // C6-C8: bright but gentle.
-    return 1000; // C3-B5: balanced live keyboard note.
+    if (note.midiNumber <= 47) return 650; // A0-B2: short but still warm.
+    if (note.midiNumber >= 84) return 380; // C6-C8: very quick decay.
+    return 520; // C3-B5: light MVP keyboard tap.
   }
 
   double _generationVolumeFor(PianoNote note) {
-    if (note.midiNumber <= 47) return 0.50;
-    if (note.midiNumber >= 84) return 0.42;
-    return 0.48;
+    if (note.midiNumber <= 47) return 0.78;
+    if (note.midiNumber >= 84) return 0.64;
+    return 0.72;
   }
 
   double _keyboardVolumeFor(PianoNote note) {
-    if (note.midiNumber <= 47) return 0.84;
-    if (note.midiNumber >= 84) return 0.68;
-    return 0.78;
+    if (note.midiNumber <= 47) return 0.96;
+    if (note.midiNumber >= 84) return 0.82;
+    return 0.92;
   }
 
   /// Generates a short, warm acoustic-style piano WAV.
@@ -376,7 +414,7 @@ class AudioService {
   /// - natural decay
   /// - harmonic partials that decay faster at higher frequencies
   /// - a tiny hammer/noise transient
-  /// - soft saturation instead of hard clipping
+  /// - safe per-note peak normalization instead of heavy clipping
   /// - subtle stereo spread for a soundboard-like feeling
   Uint8List _buildWarmWoodPianoWav({
     required double frequency,
@@ -384,34 +422,57 @@ class AudioService {
     required int durationMs,
     required double volume,
     required double velocity,
+    bool keyboardTapMode = false,
   }) {
     final totalSamples = (_sampleRate * durationMs / 1000).round();
-    final pcmBytes = BytesBuilder(copy: false);
+    final leftSamples = Float64List(totalSamples);
+    final rightSamples = Float64List(totalSamples);
 
     final notePosition = _pianoRangePosition(frequency, midiNumber);
     final lowWarmth = 1.0 - notePosition;
     final highBrightness = notePosition;
 
-    final mainDecay = 1.45 + highBrightness * 2.2;
-    final bodyDecay = 0.68 + highBrightness * 1.12;
-    final brightness = 0.56 + highBrightness * 0.44;
-    final harmonicScale = 0.78 + highBrightness * 0.26;
+    final brightness = keyboardTapMode
+        ? 0.64 + highBrightness * 0.42
+        : 0.56 + highBrightness * 0.44;
+    final harmonicScale = keyboardTapMode
+        ? 0.74 + highBrightness * 0.24
+        : 0.78 + highBrightness * 0.26;
+    final releaseStart = keyboardTapMode
+        ? notePosition > 0.72
+            ? 0.70
+            : 0.76
+        : notePosition > 0.72
+            ? 0.80
+            : 0.86;
+    final releaseLength = 1.0 - releaseStart;
+    final targetPeak = keyboardTapMode ? 0.82 : 0.76;
 
+    var peak = 0.0;
     for (var i = 0; i < totalSamples; i++) {
       final t = i / _sampleRate;
       final progress = i / totalSamples;
 
-      // Fast hammer attack, then wood/string decay. The release fade prevents
-      // clicks when the generated WAV ends without needing a pointer-up stop.
-      final attack = 1.0 - math.exp(-t * 440.0);
-      final stringDecay = (0.76 + lowWarmth * 0.08) * math.exp(-mainDecay * progress) +
-          (0.24 - lowWarmth * 0.04) * math.exp(-bodyDecay * progress);
-      final releaseStart = notePosition > 0.72 ? 0.80 : 0.86;
-      final releaseLength = 1.0 - releaseStart;
+      // Ultra-fast hammer attack plus a quick front-loaded decay keeps the
+      // first 80-150 ms clear for live-keyboard taps. Non-keyboard generated
+      // tones keep the older duration-shaped decay for song demo timing.
+      final attack = 1.0 - math.exp(-t * (keyboardTapMode ? 950.0 : 440.0));
       final release = progress > releaseStart
           ? (1.0 - progress) / releaseLength
           : 1.0;
-      final envelope = attack * stringDecay * release.clamp(0.0, 1.0);
+      final envelope = keyboardTapMode
+          ? attack *
+              (0.72 * math.exp(-t * (6.8 + highBrightness * 2.2)) +
+                  0.28 * math.exp(-t * (2.9 + highBrightness * 2.4)) +
+                  (0.08 + lowWarmth * 0.04) *
+                      math.exp(-t * (3.6 + highBrightness * 1.8))) *
+              release.clamp(0.0, 1.0)
+          : attack *
+              ((0.76 + lowWarmth * 0.08) *
+                      math.exp(-(1.45 + highBrightness * 2.2) * progress) +
+                  (0.24 - lowWarmth * 0.04) *
+                      math.exp(-(0.68 + highBrightness * 1.12) * progress)) *
+              release.clamp(0.0, 1.0);
 
       final left = _pianoSample(
         t: t,
@@ -430,16 +491,30 @@ class AudioService {
         detuneDirection: 1,
       );
 
-      // Very short hammer transient adds acoustic touch but remains gentle.
+      // A slightly clearer transient helps children hear very quick taps, but
+      // it is normalized with the whole waveform below to avoid distortion.
       final hammer = _hammerTransient(t, frequency, velocity, notePosition);
       final body = _woodBodyResonance(t, frequency, notePosition);
+      final hammerLeft = keyboardTapMode ? 0.78 : 0.55;
+      final hammerRight = keyboardTapMode ? 0.62 : 0.45;
+      final leftSample = (left + hammer * hammerLeft + body) * envelope * volume;
+      final rightSample =
+          (right + hammer * hammerRight + body) * envelope * volume;
 
-      final leftValue = _toInt16(
-        _softClip((left + hammer * 0.55 + body) * envelope * volume),
-      );
-      final rightValue = _toInt16(
-        _softClip((right + hammer * 0.45 + body) * envelope * volume),
-      );
+      leftSamples[i] = leftSample;
+      rightSamples[i] = rightSample;
+      peak = math.max(peak, leftSample.abs());
+      peak = math.max(peak, rightSample.abs());
+    }
+
+    // Normalize each generated WAV to a safe peak. This keeps short live-keyboard
+    // samples clearly audible after the transient without relying on heavy soft
+    // clipping, while still leaving headroom for chords.
+    final normalizeGain = peak <= 0 ? 1.0 : math.min(targetPeak / peak, 3.0);
+    final pcmBytes = BytesBuilder(copy: false);
+    for (var i = 0; i < totalSamples; i++) {
+      final leftValue = _toInt16(leftSamples[i] * normalizeGain);
+      final rightValue = _toInt16(rightSamples[i] * normalizeGain);
 
       pcmBytes
         ..addByte(leftValue & 0xff)
@@ -531,16 +606,6 @@ class AudioService {
   double _deterministicNoise(double t) {
     final x = math.sin((t * 44100.0 + 12.9898) * 78.233) * 43758.5453;
     return 2.0 * (x - x.floor()) - 1.0;
-  }
-
-  /// Smoothly limits the waveform to avoid harsh clipping.
-  /// Dart's math library does not include tanh() on all Flutter versions,
-  /// so we use an equivalent exponential implementation.
-  double _softClip(double x) {
-    if (x > 12) return 1;
-    if (x < -12) return -1;
-    final e = math.exp(2 * x);
-    return (e - 1) / (e + 1);
   }
 
   int _toInt16(double sample) {

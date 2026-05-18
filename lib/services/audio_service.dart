@@ -21,7 +21,8 @@ import '../models/song.dart';
 /// wood-piano-like tone designed for a kid-friendly MVP.
 class AudioService {
   AudioService() {
-    unawaited(_initializeKeyboardAudio());
+    keyboardCacheReady = _initializeKeyboardAudio();
+    unawaited(keyboardCacheReady);
   }
 
   final AudioPlayer _effectsPlayer = AudioPlayer();
@@ -29,12 +30,19 @@ class AudioService {
   final Map<String, bool> _assetAvailabilityByNote = {};
   final Map<String, AudioSource> _keyboardSoundByNote = {};
   final Map<String, _KeyboardSampleInfo> _keyboardSampleInfoByNote = {};
+  final ValueNotifier<bool> _keyboardCacheReadyNotifier = ValueNotifier(false);
+  late final Future<void> keyboardCacheReady;
   var _songDemoToken = 0;
   var _isSoLoudReady = false;
 
+  bool get isKeyboardCacheReady => _isSoLoudReady;
+
+  ValueListenable<bool> get keyboardCacheReadyListenable =>
+      _keyboardCacheReadyNotifier;
+
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
-  static const int _keyboardNoteDurationMs = 420;
+  static const int _keyboardNoteDurationMs = 200;
   static const Duration _audioStartTimeout = Duration(milliseconds: 900);
 
   static const int _sampleRate = 44100;
@@ -201,8 +209,8 @@ class AudioService {
         final sample = _buildWarmWoodPianoWav(
           frequency: entry.value,
           durationMs: _keyboardNoteDurationMs,
-          volume: 0.74,
-          velocity: 0.92,
+          volume: 0.82,
+          velocity: 1.0,
           liveKeyboard: true,
         );
         debugPrint(
@@ -219,11 +227,13 @@ class AudioService {
       }
 
       _isSoLoudReady = _keyboardSoundByNote.length == _noteFrequencies.length;
+      _keyboardCacheReadyNotifier.value = _isSoLoudReady;
       debugPrint(
         'SoLoud keyboard cache ready: ${_keyboardSoundByNote.length} notes',
       );
     } catch (error) {
       _isSoLoudReady = false;
+      _keyboardCacheReadyNotifier.value = false;
       debugPrint('SoLoud keyboard cache skipped. Error: $error');
     }
   }
@@ -417,13 +427,13 @@ class AudioService {
     final keyPosition = ((frequency - 261.63) / (523.25 - 261.63))
         .clamp(0.0, 1.0);
     final mainDecay = liveKeyboard
-        ? 4.5 + keyPosition * 1.45
+        ? 7.8 + keyPosition * 2.2
         : 2.0 + keyPosition * 1.25;
     final bodyDecay = liveKeyboard
-        ? 5.3 + keyPosition * 1.2
+        ? 12.5 + keyPosition * 3.0
         : 0.9 + keyPosition * 0.65;
     final brightness = liveKeyboard
-        ? 0.92 + keyPosition * 0.24
+        ? 1.08 + keyPosition * 0.32
         : 0.72 + keyPosition * 0.22;
 
     for (var i = 0; i < totalSamples; i++) {
@@ -433,14 +443,14 @@ class AudioService {
       // Live keyboard samples must be audible immediately. Use an instant
       // attack floor with a very fast ramp instead of a soft fade-in.
       final attack = liveKeyboard
-          ? 0.78 + 0.22 * (1.0 - math.exp(-t * 1250.0))
+          ? 0.9 + 0.1 * (1.0 - math.exp(-t * 1800.0))
           : 1.0 - math.exp(-t * 420.0);
       final stringDecay = liveKeyboard
-          ? 0.88 * math.exp(-mainDecay * progress) +
-              0.12 * math.exp(-bodyDecay * progress)
+          ? 0.95 * math.exp(-mainDecay * progress) +
+              0.05 * math.exp(-bodyDecay * progress)
           : 0.74 * math.exp(-mainDecay * progress) +
               0.26 * math.exp(-bodyDecay * progress);
-      final releaseStart = liveKeyboard ? 0.76 : 0.86;
+      final releaseStart = liveKeyboard ? 0.62 : 0.86;
       final releaseLength = 1.0 - releaseStart;
       final release = progress > releaseStart
           ? (1.0 - progress) / releaseLength
@@ -476,8 +486,8 @@ class AudioService {
         liveKeyboard: liveKeyboard,
       );
 
-      final hammerLeft = liveKeyboard ? hammer * 0.92 : hammer * 0.55;
-      final hammerRight = liveKeyboard ? hammer * 0.78 : hammer * 0.45;
+      final hammerLeft = liveKeyboard ? hammer * 1.05 : hammer * 0.55;
+      final hammerRight = liveKeyboard ? hammer * 0.9 : hammer * 0.45;
       final leftRaw = ((left + body) * envelope + hammerLeft) * volume;
       final rightRaw = ((right + body) * envelope + hammerRight) * volume;
       normalizedSamples[i * _channels] = leftRaw;
@@ -493,7 +503,7 @@ class AudioService {
       }
     }
 
-    final targetPeak = liveKeyboard ? 0.86 : 0.78;
+    final targetPeak = liveKeyboard ? 0.9 : 0.78;
     final normalizeGain = peak <= 0 ? 1.0 : math.min(2.2, targetPeak / peak);
     for (var i = 0; i < totalSamples; i++) {
       final leftValue = _toInt16(
@@ -571,12 +581,12 @@ class AudioService {
     double velocity, {
     bool liveKeyboard = false,
   }) {
-    final transient = math.exp(-t * (liveKeyboard ? 125.0 : 95.0));
+    final transient = math.exp(-t * (liveKeyboard ? 155.0 : 95.0));
     final clickTone = math.sin(2 * math.pi * frequency * 7.0 * t);
     final woodyTap =
-        math.sin(2 * math.pi * 2100.0 * t) * (liveKeyboard ? 0.48 : 0.35);
-    final softNoise = _deterministicNoise(t) * (liveKeyboard ? 0.24 : 0.18);
-    final amount = liveKeyboard ? 0.24 : 0.13;
+        math.sin(2 * math.pi * 2300.0 * t) * (liveKeyboard ? 0.62 : 0.35);
+    final softNoise = _deterministicNoise(t) * (liveKeyboard ? 0.2 : 0.18);
+    final amount = liveKeyboard ? 0.3 : 0.13;
     return transient * velocity * amount * (clickTone + woodyTap + softNoise);
   }
 
@@ -588,8 +598,8 @@ class AudioService {
   }) {
     // Subtle resonances give a small soundboard/body feeling.
     final bodyAmount =
-        (liveKeyboard ? 0.012 : 0.026) * (1.0 - keyPosition * 0.35);
-    final bodyDecay = math.exp(-t * (liveKeyboard ? 7.0 : 2.2));
+        (liveKeyboard ? 0.004 : 0.026) * (1.0 - keyPosition * 0.35);
+    final bodyDecay = math.exp(-t * (liveKeyboard ? 24.0 : 2.2));
     final body1 = math.sin(2 * math.pi * (frequency * 0.5) * t) * 0.55;
     final body2 = math.sin(2 * math.pi * (frequency * 1.5) * t) * 0.25;
     final body3 = math.sin(2 * math.pi * 176.0 * t) * 0.20;
@@ -673,6 +683,7 @@ class AudioService {
       debugPrint('SoLoud deinit skipped. Error: $error');
     }
 
+    _keyboardCacheReadyNotifier.dispose();
     await _effectsPlayer.dispose();
   }
 }

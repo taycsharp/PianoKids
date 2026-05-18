@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -15,32 +17,72 @@ class PianoScreen extends StatefulWidget {
 class _PianoScreenState extends State<PianoScreen> {
   bool _showNames = true;
   bool _funMode = true;
+  final Map<int, String> _activePresses = {};
   final Set<String> _pressedNotes = {};
   String _message = 'Play any note!';
   final List<String> _sequence = [];
   final List<String> _rewardSequence = ['C', 'D', 'E'];
 
-  Future<void> _startNote(String note, int _) async {
-    setState(() {
-      _pressedNotes.add(note);
-      _message = 'You played $note!';
-    });
+  void _startNote(String note, int pressId) {
+    final debugNote = _debugNoteName(note);
+    debugPrint('Parent key down received: $pressId $debugNote');
 
     final audio = context.read<AudioService>();
+    debugPrint('Parent calls playKeyboardNote before setState: $debugNote');
     audio.playKeyboardNote(note);
+
+    _activePresses[pressId] = note;
+    debugPrint('Parent active presses after down: ${_debugActivePresses()}');
+
+    if (mounted) {
+      setState(() {
+        _syncPressedNotesFromActivePresses();
+        _message = 'You played $note!';
+      });
+    }
 
     if (_funMode) {
       _sequence.add(note);
       if (_sequence.length > _rewardSequence.length) _sequence.removeAt(0);
       if (_sequence.join(',') == _rewardSequence.join(',')) {
-        await audio.playAnimalReward();
-        if (mounted) setState(() => _message = 'Animal reward! 🐶 ⭐');
+        unawaited(
+          Future<void>.delayed(const Duration(milliseconds: 80), () async {
+            await audio.playAnimalReward();
+            if (mounted) setState(() => _message = 'Animal reward! 🐶 ⭐');
+          }),
+        );
       }
     }
   }
 
-  void _stopNote(String note, int _) {
-    setState(() => _pressedNotes.remove(note));
+  void _stopNote(String note, int pressId) {
+    final debugNote = _debugNoteName(note);
+    debugPrint('Parent key up received: $pressId $debugNote');
+
+    _activePresses.remove(pressId);
+    debugPrint('Parent active presses after up: ${_debugActivePresses()}');
+
+    if (mounted) {
+      setState(_syncPressedNotesFromActivePresses);
+    }
+  }
+
+  void _syncPressedNotesFromActivePresses() {
+    _pressedNotes
+      ..clear()
+      ..addAll(_activePresses.values);
+  }
+
+  String _debugActivePresses() {
+    final entries = _activePresses.entries
+        .map((entry) => '${entry.key}: ${_debugNoteName(entry.value)}')
+        .join(', ');
+    return '{$entries}';
+  }
+
+  String _debugNoteName(String note) {
+    if (note == 'High C') return 'C5';
+    return '${note}4';
   }
 
   @override

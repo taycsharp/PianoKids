@@ -28,12 +28,13 @@ class AudioService {
   final SoLoud _soloud = SoLoud.instance;
   final Map<String, bool> _assetAvailabilityByNote = {};
   final Map<String, AudioSource> _keyboardSoundByNote = {};
+  final Map<String, _KeyboardSampleInfo> _keyboardSampleInfoByNote = {};
   var _songDemoToken = 0;
   var _isSoLoudReady = false;
 
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
-  static const int _keyboardNoteDurationMs = 620;
+  static const int _keyboardNoteDurationMs = 420;
   static const Duration _audioStartTimeout = Duration(milliseconds: 900);
 
   static const int _sampleRate = 44100;
@@ -98,8 +99,13 @@ class AudioService {
       return;
     }
 
-    debugPrint('Keyboard note triggered: $debugNote');
-    _playSoLoudKeyboardNote(debugNote: debugNote, source: source);
+    final requestedAtMs = DateTime.now().millisecondsSinceEpoch;
+    debugPrint('Keyboard note triggered: $debugNote at ${requestedAtMs}ms');
+    _playSoLoudKeyboardNote(
+      debugNote: debugNote,
+      source: source,
+      sampleInfo: _keyboardSampleInfoByNote[note],
+    );
   }
 
   /// Legacy API for non-keyboard callers. It now uses the same fire-and-forget
@@ -192,17 +198,24 @@ class AudioService {
       // keeps the live keyboard path small and avoids an 88-note cache for now.
       for (final entry in _noteFrequencies.entries) {
         final debugNote = _debugNoteName(entry.key);
-        final bytes = _buildWarmWoodPianoWav(
+        final sample = _buildWarmWoodPianoWav(
           frequency: entry.value,
           durationMs: _keyboardNoteDurationMs,
-          volume: 0.52,
-          velocity: 0.72,
+          volume: 0.74,
+          velocity: 0.92,
+          liveKeyboard: true,
+        );
+        debugPrint(
+          'Live sample duration $debugNote = ${sample.info.durationMs}ms; '
+          'first non-zero sample at ${sample.info.firstNonZeroSampleMs}ms; '
+          'attack peak within first 30ms = ${sample.info.attackPeakWithinFirst30Ms}',
         );
         _keyboardSoundByNote[entry.key] = await _soloud.loadMem(
           '$debugNote.wav',
-          bytes,
+          sample.bytes,
           mode: LoadMode.memory,
         );
+        _keyboardSampleInfoByNote[entry.key] = sample.info;
       }
 
       _isSoLoudReady = _keyboardSoundByNote.length == _noteFrequencies.length;
@@ -240,10 +253,24 @@ class AudioService {
   void _playSoLoudKeyboardNote({
     required String debugNote,
     required AudioSource source,
+    required _KeyboardSampleInfo? sampleInfo,
   }) {
+    final beforePlayMs = DateTime.now().millisecondsSinceEpoch;
+    debugPrint('SoLoud play called $debugNote at ${beforePlayMs}ms');
+    if (sampleInfo != null) {
+      debugPrint(
+        'Live sample duration $debugNote = ${sampleInfo.durationMs}ms; '
+        'first non-zero sample at ${sampleInfo.firstNonZeroSampleMs}ms; '
+        'attack peak within first 30ms = ${sampleInfo.attackPeakWithinFirst30Ms}',
+      );
+    }
+
     try {
-      final voice = _soloud.play(source, volume: 0.78);
-      debugPrint('SoLoud voice started: $debugNote voice=$voice');
+      final voice = _soloud.play(source, volume: 0.86);
+      final afterPlayMs = DateTime.now().millisecondsSinceEpoch;
+      debugPrint(
+        'SoLoud voice started: $debugNote voice=$voice at ${afterPlayMs}ms',
+      );
     } catch (error) {
       debugPrint(
         'Keyboard note skipped: $debugNote SoLoud play failed. Error: $error',
@@ -340,15 +367,15 @@ class AudioService {
   }) async {
     try {
       await player.stop();
-      final bytes = _buildWarmWoodPianoWav(
+      final sample = _buildWarmWoodPianoWav(
         frequency: frequency,
         durationMs: durationMs,
         volume: volume,
         velocity: velocity,
       );
-      debugPrint('Generated WAV bytes length: ${bytes.length}');
+      debugPrint('Generated WAV bytes length: ${sample.bytes.length}');
       await player
-          .play(BytesSource(bytes, mimeType: 'audio/wav'))
+          .play(BytesSource(sample.bytes, mimeType: 'audio/wav'))
           .timeout(_audioStartTimeout);
     } catch (error) {
       // Audio should never block the child from using the app.
@@ -371,31 +398,53 @@ class AudioService {
   /// - a tiny hammer/noise transient
   /// - soft saturation instead of hard clipping
   /// - subtle stereo spread for a soundboard-like feeling
-  Uint8List _buildWarmWoodPianoWav({
+  _GeneratedPianoWav _buildWarmWoodPianoWav({
     required double frequency,
     required int durationMs,
     required double volume,
     required double velocity,
+    bool liveKeyboard = false,
   }) {
     final totalSamples = (_sampleRate * durationMs / 1000).round();
+    final normalizedSamples = List<double>.filled(totalSamples * _channels, 0);
     final pcmBytes = BytesBuilder(copy: false);
+    var peak = 0.0;
+    var firstNonZeroSampleIndex = -1;
+    var first30MsPeak = 0.0;
+    final first30SampleCount = (_sampleRate * 0.030).round();
 
     // Higher keys naturally fade a little faster. Lower keys feel warmer.
-    final keyPosition = ((frequency - 261.63) / (523.25 - 261.63)).clamp(0.0, 1.0);
-    final mainDecay = 2.0 + keyPosition * 1.25;
-    final bodyDecay = 0.9 + keyPosition * 0.65;
-    final brightness = 0.72 + keyPosition * 0.22;
+    final keyPosition = ((frequency - 261.63) / (523.25 - 261.63))
+        .clamp(0.0, 1.0);
+    final mainDecay = liveKeyboard
+        ? 4.5 + keyPosition * 1.45
+        : 2.0 + keyPosition * 1.25;
+    final bodyDecay = liveKeyboard
+        ? 5.3 + keyPosition * 1.2
+        : 0.9 + keyPosition * 0.65;
+    final brightness = liveKeyboard
+        ? 0.92 + keyPosition * 0.24
+        : 0.72 + keyPosition * 0.22;
 
     for (var i = 0; i < totalSamples; i++) {
       final t = i / _sampleRate;
       final progress = i / totalSamples;
 
-      // Fast hammer attack, then wood/string decay. The release fade prevents
-      // clicks when the generated WAV ends.
-      final attack = 1.0 - math.exp(-t * 420.0);
-      final stringDecay = 0.74 * math.exp(-mainDecay * progress) +
-          0.26 * math.exp(-bodyDecay * progress);
-      final release = progress > 0.86 ? (1.0 - progress) / 0.14 : 1.0;
+      // Live keyboard samples must be audible immediately. Use an instant
+      // attack floor with a very fast ramp instead of a soft fade-in.
+      final attack = liveKeyboard
+          ? 0.78 + 0.22 * (1.0 - math.exp(-t * 1250.0))
+          : 1.0 - math.exp(-t * 420.0);
+      final stringDecay = liveKeyboard
+          ? 0.88 * math.exp(-mainDecay * progress) +
+              0.12 * math.exp(-bodyDecay * progress)
+          : 0.74 * math.exp(-mainDecay * progress) +
+              0.26 * math.exp(-bodyDecay * progress);
+      final releaseStart = liveKeyboard ? 0.76 : 0.86;
+      final releaseLength = 1.0 - releaseStart;
+      final release = progress > releaseStart
+          ? (1.0 - progress) / releaseLength
+          : 1.0;
       final envelope = attack * stringDecay * release.clamp(0.0, 1.0);
 
       final left = _pianoSample(
@@ -414,14 +463,44 @@ class AudioService {
       );
 
       // Very short hammer transient adds acoustic touch but remains gentle.
-      final hammer = _hammerTransient(t, frequency, velocity);
-      final body = _woodBodyResonance(t, frequency, keyPosition);
+      final hammer = _hammerTransient(
+        t,
+        frequency,
+        velocity,
+        liveKeyboard: liveKeyboard,
+      );
+      final body = _woodBodyResonance(
+        t,
+        frequency,
+        keyPosition,
+        liveKeyboard: liveKeyboard,
+      );
 
+      final hammerLeft = liveKeyboard ? hammer * 0.92 : hammer * 0.55;
+      final hammerRight = liveKeyboard ? hammer * 0.78 : hammer * 0.45;
+      final leftRaw = ((left + body) * envelope + hammerLeft) * volume;
+      final rightRaw = ((right + body) * envelope + hammerRight) * volume;
+      normalizedSamples[i * _channels] = leftRaw;
+      normalizedSamples[i * _channels + 1] = rightRaw;
+
+      final framePeak = math.max(leftRaw.abs(), rightRaw.abs());
+      if (framePeak > peak) peak = framePeak;
+      if (firstNonZeroSampleIndex == -1 && framePeak > 0.00003) {
+        firstNonZeroSampleIndex = i;
+      }
+      if (i < first30SampleCount && framePeak > first30MsPeak) {
+        first30MsPeak = framePeak;
+      }
+    }
+
+    final targetPeak = liveKeyboard ? 0.86 : 0.78;
+    final normalizeGain = peak <= 0 ? 1.0 : math.min(2.2, targetPeak / peak);
+    for (var i = 0; i < totalSamples; i++) {
       final leftValue = _toInt16(
-        _softClip((left + hammer * 0.55 + body) * envelope * volume),
+        _softClip(normalizedSamples[i * _channels] * normalizeGain),
       );
       final rightValue = _toInt16(
-        _softClip((right + hammer * 0.45 + body) * envelope * volume),
+        _softClip(normalizedSamples[i * _channels + 1] * normalizeGain),
       );
 
       pcmBytes
@@ -432,7 +511,18 @@ class AudioService {
     }
 
     final pcmData = pcmBytes.takeBytes();
-    return _wrapPcmAsWav(pcmData);
+    final firstNonZeroMs = firstNonZeroSampleIndex < 0
+        ? -1
+        : (firstNonZeroSampleIndex * 1000 / _sampleRate).round();
+    final attackPeakWithinFirst30Ms = first30MsPeak * normalizeGain >= 0.22;
+    return _GeneratedPianoWav(
+      bytes: _wrapPcmAsWav(pcmData),
+      info: _KeyboardSampleInfo(
+        durationMs: durationMs,
+        firstNonZeroSampleMs: firstNonZeroMs,
+        attackPeakWithinFirst30Ms: attackPeakWithinFirst30Ms,
+      ),
+    );
   }
 
   double _pianoSample({
@@ -470,21 +560,36 @@ class AudioService {
   double _harmonic(double baseFrequency, double t, int harmonic, double amount) {
     // Higher harmonics decay a little faster, reducing synthetic harshness.
     final harmonicDecay = math.exp(-t * harmonic * 0.62);
-    return amount * harmonicDecay * math.sin(2 * math.pi * baseFrequency * harmonic * t);
+    return amount *
+        harmonicDecay *
+        math.sin(2 * math.pi * baseFrequency * harmonic * t);
   }
 
-  double _hammerTransient(double t, double frequency, double velocity) {
-    final transient = math.exp(-t * 95.0);
+  double _hammerTransient(
+    double t,
+    double frequency,
+    double velocity, {
+    bool liveKeyboard = false,
+  }) {
+    final transient = math.exp(-t * (liveKeyboard ? 125.0 : 95.0));
     final clickTone = math.sin(2 * math.pi * frequency * 7.0 * t);
-    final woodyTap = math.sin(2 * math.pi * 1800.0 * t) * 0.35;
-    final softNoise = _deterministicNoise(t) * 0.18;
-    return transient * velocity * 0.13 * (clickTone + woodyTap + softNoise);
+    final woodyTap =
+        math.sin(2 * math.pi * 2100.0 * t) * (liveKeyboard ? 0.48 : 0.35);
+    final softNoise = _deterministicNoise(t) * (liveKeyboard ? 0.24 : 0.18);
+    final amount = liveKeyboard ? 0.24 : 0.13;
+    return transient * velocity * amount * (clickTone + woodyTap + softNoise);
   }
 
-  double _woodBodyResonance(double t, double frequency, double keyPosition) {
+  double _woodBodyResonance(
+    double t,
+    double frequency,
+    double keyPosition, {
+    bool liveKeyboard = false,
+  }) {
     // Subtle resonances give a small soundboard/body feeling.
-    final bodyAmount = 0.026 * (1.0 - keyPosition * 0.35);
-    final bodyDecay = math.exp(-t * 2.2);
+    final bodyAmount =
+        (liveKeyboard ? 0.012 : 0.026) * (1.0 - keyPosition * 0.35);
+    final bodyDecay = math.exp(-t * (liveKeyboard ? 7.0 : 2.2));
     final body1 = math.sin(2 * math.pi * (frequency * 0.5) * t) * 0.55;
     final body2 = math.sin(2 * math.pi * (frequency * 1.5) * t) * 0.25;
     final body3 = math.sin(2 * math.pi * 176.0 * t) * 0.20;
@@ -560,6 +665,7 @@ class AudioService {
       }
     }
     _keyboardSoundByNote.clear();
+    _keyboardSampleInfoByNote.clear();
 
     try {
       _soloud.deinit();
@@ -569,4 +675,26 @@ class AudioService {
 
     await _effectsPlayer.dispose();
   }
+}
+
+class _GeneratedPianoWav {
+  const _GeneratedPianoWav({
+    required this.bytes,
+    required this.info,
+  });
+
+  final Uint8List bytes;
+  final _KeyboardSampleInfo info;
+}
+
+class _KeyboardSampleInfo {
+  const _KeyboardSampleInfo({
+    required this.durationMs,
+    required this.firstNonZeroSampleMs,
+    required this.attackPeakWithinFirst30Ms,
+  });
+
+  final int durationMs;
+  final int firstNonZeroSampleMs;
+  final bool attackPeakWithinFirst30Ms;
 }

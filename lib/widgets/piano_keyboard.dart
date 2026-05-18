@@ -277,7 +277,10 @@ class _PressablePianoKeyState extends State<_PressablePianoKey> {
     _activePointers.add(event.pointer);
     if (wasIdle) {
       _activePressId = event.pointer;
-      debugPrint('Pointer down: ${event.pointer} $debugNote');
+      final pointerDownMs = DateTime.now().millisecondsSinceEpoch;
+      debugPrint(
+        'Pointer down $debugNote at ${pointerDownMs}ms pointer=${event.pointer}',
+      );
       widget.onStart(event.pointer);
     } else {
       debugPrint(

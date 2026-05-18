@@ -269,35 +269,29 @@ class _PressablePianoKey extends StatefulWidget {
 
 class _PressablePianoKeyState extends State<_PressablePianoKey> {
   final Set<int> _activePointers = {};
-  int? _activePressId;
 
   void _handleDown(PointerDownEvent event) {
-    final wasIdle = _activePointers.isEmpty;
     _activePointers.add(event.pointer);
-    if (wasIdle) {
-      _activePressId = event.pointer;
-      debugPrint(
-        'Pointer ${event.pointer} down ${_debugNoteName(widget.note)}',
-      );
-      widget.onStart(event.pointer);
-    }
+    debugPrint(
+      'Pointer ${event.pointer} down ${_debugNoteName(widget.note)}',
+    );
+    widget.onStart(event.pointer);
   }
 
   void _handleEnd(int pointer) {
     if (!_activePointers.remove(pointer)) return;
-    if (_activePointers.isEmpty) {
-      final pressId = _activePressId;
-      _activePressId = null;
-      if (pressId == null) return;
-      debugPrint('Pointer $pressId up ${_debugNoteName(widget.note)}');
-      widget.onStop(pressId);
-    }
+    debugPrint(
+      'Pointer up ${_debugNoteName(widget.note)} highlight removed',
+    );
+    widget.onStop(pointer);
   }
 
   @override
   void dispose() {
-    final pressId = _activePressId;
-    if (_activePointers.isNotEmpty && pressId != null) widget.onStop(pressId);
+    for (final pointer in _activePointers) {
+      widget.onStop(pointer);
+    }
+    _activePointers.clear();
     super.dispose();
   }
 

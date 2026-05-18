@@ -30,7 +30,9 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
   int _mistakes = 0;
   String _feedback = 'Tap the note!';
   bool _completed = false;
-  final Set<String> _pressedNotes = {};
+  final Map<int, String> _notesByPointer = {};
+
+  Set<String> get _pressedNotes => _notesByPointer.values.toSet();
 
   String? get _targetNote {
     if (widget.lesson.requiredNotes.isEmpty) return null;
@@ -38,9 +40,9 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
     return widget.lesson.requiredNotes[_currentTargetIndex];
   }
 
-  Future<void> _onNoteStarted(String note, int _) async {
+  Future<void> _onNoteStarted(String note, int pressId) async {
     final audio = context.read<AudioService>();
-    setState(() => _pressedNotes.add(note));
+    setState(() => _notesByPointer[pressId] = note);
     audio.playKeyboardNote(note);
 
     final target = _targetNote;
@@ -64,8 +66,8 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
     }
   }
 
-  void _onNoteStopped(String note, int _) {
-    setState(() => _pressedNotes.remove(note));
+  void _onNoteStopped(String note, int pressId) {
+    setState(() => _notesByPointer.remove(pressId));
   }
 
   String _displayNote(String note) => PianoKeyboard.displayName(note);

@@ -20,17 +20,19 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
   int _currentIndex = 0;
   int _mistakes = 0;
   String _message = 'Start the song!';
-  final Set<String> _pressedNotes = {};
+  final Map<int, String> _notesByPointer = {};
+
+  Set<String> get _pressedNotes => _notesByPointer.values.toSet();
 
   bool get _finished => _currentIndex >= widget.song.notes.length;
 
   String get _currentNote => _finished ? widget.song.notes.last : widget.song.notes[_currentIndex];
 
-  Future<void> _onNoteStarted(String note, int _) async {
+  Future<void> _onNoteStarted(String note, int pressId) async {
     final audio = context.read<AudioService>();
     final progressProvider = context.read<ProgressProvider>();
 
-    setState(() => _pressedNotes.add(note));
+    setState(() => _notesByPointer[pressId] = note);
     audio.playKeyboardNote(note);
 
     if (_finished) return;
@@ -58,8 +60,8 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
     }
   }
 
-  void _onNoteStopped(String note, int _) {
-    setState(() => _pressedNotes.remove(note));
+  void _onNoteStopped(String note, int pressId) {
+    setState(() => _notesByPointer.remove(pressId));
   }
 
   @override

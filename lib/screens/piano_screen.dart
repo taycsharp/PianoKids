@@ -15,14 +15,16 @@ class PianoScreen extends StatefulWidget {
 class _PianoScreenState extends State<PianoScreen> {
   bool _showNames = true;
   bool _funMode = true;
-  final Set<String> _pressedNotes = {};
+  final Map<int, String> _notesByPointer = {};
+
+  Set<String> get _pressedNotes => _notesByPointer.values.toSet();
   String _message = 'Play any note!';
   final List<String> _sequence = [];
   final List<String> _rewardSequence = ['C', 'D', 'E'];
 
-  Future<void> _startNote(String note, int _) async {
+  Future<void> _startNote(String note, int pressId) async {
     setState(() {
-      _pressedNotes.add(note);
+      _notesByPointer[pressId] = note;
       _message = 'You played $note!';
     });
 
@@ -39,8 +41,8 @@ class _PianoScreenState extends State<PianoScreen> {
     }
   }
 
-  void _stopNote(String note, int _) {
-    setState(() => _pressedNotes.remove(note));
+  void _stopNote(String note, int pressId) {
+    setState(() => _notesByPointer.remove(pressId));
   }
 
   @override

@@ -34,7 +34,7 @@ class AudioService {
 
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
-  static const int _keyboardNoteDurationMs = 1600;
+  static const int _keyboardNoteDurationMs = 1000;
   static const Duration _audioStartTimeout = Duration(milliseconds: 900);
   static const Duration _soloudLoadTimeout = Duration(seconds: 8);
 
@@ -99,12 +99,14 @@ class AudioService {
     }
 
     try {
+      debugPrint('Keyboard note triggered: $debugNote');
       if (_assetAvailabilityByNote[note] == true) {
         debugPrint('Using preloaded asset note: $debugNote');
       } else {
         debugPrint('Using preloaded generated note: $debugNote');
       }
-      SoLoud.instance.play(source, volume: 0.78);
+      final handle = SoLoud.instance.play(source, volume: 0.78);
+      debugPrint('Soloud voice started: $debugNote ($handle)');
     } catch (error) {
       debugPrint('Keyboard piano note skipped for $debugNote. Error: $error');
     }
@@ -210,15 +212,16 @@ class AudioService {
     try {
       // Yield out of the service constructor before doing native engine startup
       // and the heavier WAV synthesis work. After this future completes, a
-      // key press only asks SoLoud to play an already-loaded AudioSource.
+      // key press only asks SoLoud to synchronously play an already-loaded
+      // AudioSource.
       await Future<void>.delayed(Duration.zero);
       await _loadAssetManifest();
 
       final soloud = SoLoud.instance;
       if (!soloud.isInitialized) {
-        await soloud.init().timeout(_soloudLoadTimeout);
+        await soloud.init(bufferSize: 512).timeout(_soloudLoadTimeout);
       }
-      soloud.setMaxActiveVoiceCount(32);
+      soloud.setMaxActiveVoiceCount(64);
 
       for (final entry in _noteFrequencies.entries) {
         final note = entry.key;

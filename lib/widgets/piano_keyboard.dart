@@ -1,5 +1,6 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+typedef PianoKeyPressChanged = void Function(String note, int pressId);
 
 /// A beginner-friendly one-octave piano keyboard.
 ///
@@ -14,6 +15,8 @@ class PianoKeyboard extends StatelessWidget {
   final ValueChanged<String>? onNotePressed;
   final ValueChanged<String>? onNoteStarted;
   final ValueChanged<String>? onNoteStopped;
+  final PianoKeyPressChanged? onKeyPressStarted;
+  final PianoKeyPressChanged? onKeyPressStopped;
   final String? highlightedNote;
   final Set<String> highlightedNotes;
 
@@ -35,6 +38,8 @@ class PianoKeyboard extends StatelessWidget {
     this.onNotePressed,
     this.onNoteStarted,
     this.onNoteStopped,
+    this.onKeyPressStarted,
+    this.onKeyPressStopped,
     this.showNoteNames = true,
     this.highlightedNote,
     this.highlightedNotes = const {},
@@ -49,13 +54,15 @@ class PianoKeyboard extends StatelessWidget {
     return note == highlightedNote || highlightedNotes.contains(note);
   }
 
-  void _startNote(String note) {
+  void _startNote(String note, int pressId) {
     onNotePressed?.call(note);
     onNoteStarted?.call(note);
+    onKeyPressStarted?.call(note, pressId);
   }
 
-  void _stopNote(String note) {
+  void _stopNote(String note, int pressId) {
     onNoteStopped?.call(note);
+    onKeyPressStopped?.call(note, pressId);
   }
 
   @override
@@ -83,8 +90,8 @@ class PianoKeyboard extends StatelessWidget {
                         note: note,
                         showName: showNoteNames,
                         isHighlighted: _isHighlighted(note),
-                        onStart: () => _startNote(note),
-                        onStop: () => _stopNote(note),
+                        onStart: (pressId) => _startNote(note, pressId),
+                        onStop: (pressId) => _stopNote(note, pressId),
                       ),
                     ),
                 ],
@@ -99,8 +106,8 @@ class PianoKeyboard extends StatelessWidget {
                     note: entry.key,
                     showName: showNoteNames,
                     isHighlighted: _isHighlighted(entry.key),
-                    onStart: () => _startNote(entry.key),
-                    onStop: () => _stopNote(entry.key),
+                    onStart: (pressId) => _startNote(entry.key, pressId),
+                    onStop: (pressId) => _stopNote(entry.key, pressId),
                   ),
                 ),
             ],
@@ -115,8 +122,8 @@ class _WhiteKey extends StatelessWidget {
   final String note;
   final bool showName;
   final bool isHighlighted;
-  final VoidCallback onStart;
-  final VoidCallback onStop;
+  final ValueChanged<int> onStart;
+  final ValueChanged<int> onStop;
 
   const _WhiteKey({
     required this.note,
@@ -183,8 +190,8 @@ class _BlackKey extends StatelessWidget {
   final String note;
   final bool showName;
   final bool isHighlighted;
-  final VoidCallback onStart;
-  final VoidCallback onStop;
+  final ValueChanged<int> onStart;
+  final ValueChanged<int> onStop;
 
   const _BlackKey({
     required this.note,
@@ -246,8 +253,8 @@ class _BlackKey extends StatelessWidget {
 class _PressablePianoKey extends StatefulWidget {
   final String note;
   final Widget child;
-  final VoidCallback onStart;
-  final VoidCallback onStop;
+  final ValueChanged<int> onStart;
+  final ValueChanged<int> onStop;
 
   const _PressablePianoKey({
     required this.note,
@@ -262,27 +269,35 @@ class _PressablePianoKey extends StatefulWidget {
 
 class _PressablePianoKeyState extends State<_PressablePianoKey> {
   final Set<int> _activePointers = {};
+  int? _activePressId;
 
   void _handleDown(PointerDownEvent event) {
     final wasIdle = _activePointers.isEmpty;
     _activePointers.add(event.pointer);
     if (wasIdle) {
-      debugPrint('Pointer down ${_debugNoteName(widget.note)}');
-      widget.onStart();
+      _activePressId = event.pointer;
+      debugPrint(
+        'Pointer ${event.pointer} down ${_debugNoteName(widget.note)}',
+      );
+      widget.onStart(event.pointer);
     }
   }
 
   void _handleEnd(int pointer) {
     if (!_activePointers.remove(pointer)) return;
     if (_activePointers.isEmpty) {
-      debugPrint('Pointer up ${_debugNoteName(widget.note)}');
-      widget.onStop();
+      final pressId = _activePressId;
+      _activePressId = null;
+      if (pressId == null) return;
+      debugPrint('Pointer $pressId up ${_debugNoteName(widget.note)}');
+      widget.onStop(pressId);
     }
   }
 
   @override
   void dispose() {
-    if (_activePointers.isNotEmpty) widget.onStop();
+    final pressId = _activePressId;
+    if (_activePointers.isNotEmpty && pressId != null) widget.onStop(pressId);
     super.dispose();
   }
 

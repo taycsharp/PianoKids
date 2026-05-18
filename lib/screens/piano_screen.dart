@@ -20,14 +20,14 @@ class _PianoScreenState extends State<PianoScreen> {
   final List<String> _sequence = [];
   final List<String> _rewardSequence = ['C', 'D', 'E'];
 
-  Future<void> _startNote(String note) async {
+  Future<void> _startNote(String note, int _) async {
     setState(() {
       _pressedNotes.add(note);
       _message = 'You played $note!';
     });
 
     final audio = context.read<AudioService>();
-    await audio.startNote(note);
+    audio.playKeyboardNote(note);
 
     if (_funMode) {
       _sequence.add(note);
@@ -39,9 +39,8 @@ class _PianoScreenState extends State<PianoScreen> {
     }
   }
 
-  Future<void> _stopNote(String note) async {
+  void _stopNote(String note, int _) {
     setState(() => _pressedNotes.remove(note));
-    await context.read<AudioService>().stopNote(note);
   }
 
   @override
@@ -73,8 +72,8 @@ class _PianoScreenState extends State<PianoScreen> {
             PianoKeyboard(
               showNoteNames: _showNames,
               highlightedNotes: _pressedNotes,
-              onNoteStarted: _startNote,
-              onNoteStopped: _stopNote,
+              onKeyPressStarted: _startNote,
+              onKeyPressStopped: _stopNote,
             ),
           ],
         ),

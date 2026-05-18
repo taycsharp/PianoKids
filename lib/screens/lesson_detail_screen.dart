@@ -38,10 +38,10 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
     return widget.lesson.requiredNotes[_currentTargetIndex];
   }
 
-  Future<void> _onNoteStarted(String note) async {
+  Future<void> _onNoteStarted(String note, int _) async {
     final audio = context.read<AudioService>();
     setState(() => _pressedNotes.add(note));
-    await audio.startNote(note);
+    audio.playKeyboardNote(note);
 
     final target = _targetNote;
     if (target == null) return;
@@ -64,9 +64,8 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
     }
   }
 
-  Future<void> _onNoteStopped(String note) async {
+  void _onNoteStopped(String note, int _) {
     setState(() => _pressedNotes.remove(note));
-    await context.read<AudioService>().stopNote(note);
   }
 
   String _displayNote(String note) => PianoKeyboard.displayName(note);
@@ -188,8 +187,8 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
               PianoKeyboard(
                 showNoteNames: true,
                 highlightedNotes: _pressedNotes,
-                onNoteStarted: _onNoteStarted,
-                onNoteStopped: _onNoteStopped,
+                onKeyPressStarted: _onNoteStarted,
+                onKeyPressStopped: _onNoteStopped,
               ),
             ],
             const SizedBox(height: 18),

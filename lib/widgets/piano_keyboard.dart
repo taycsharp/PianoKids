@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 typedef PianoKeyPressChanged = void Function(String note, int pressId);

@@ -250,7 +250,7 @@ class AudioService {
     }
   }
 
-  Future<void> _prepareKeyboardToneFileCache() async {
+  Future<void> _prepareKeyboardToneCache() async {
     try {
       // Yield out of the service constructor before doing the heavier WAV
       // synthesis work, then keep the resulting bytes in memory for all

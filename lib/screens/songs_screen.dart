@@ -25,7 +25,7 @@ class SongsScreen extends StatelessWidget {
             SongCard(
               song: song,
               completed: progress.progress.completedSongIds.contains(song.id),
-              onDemo: () => context.read<AudioService>().playSongNotes(song.notes),
+              onDemo: () => context.read<AudioService>().playSongDemo(song),
               onPractice: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => SongPracticeScreen(song: song)),
               ),

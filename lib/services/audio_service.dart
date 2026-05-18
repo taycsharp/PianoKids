@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/song.dart';
+
 /// Audio service for Happy Piano Kids.
 ///
 /// Audio strategy:
@@ -15,7 +17,9 @@ import 'package:flutter/foundation.dart';
 /// Steinway, Yamaha, or any other brand. It is a brand-inspired, synthetic,
 /// wood-piano-like tone designed for a kid-friendly MVP.
 class AudioService {
-  final AudioPlayer _player = AudioPlayer();
+  final AudioPlayer _effectsPlayer = AudioPlayer();
+  final Map<String, AudioPlayer> _activeVoices = {};
+  var _songDemoToken = 0;
 
   static const int _sampleRate = 44100;
   static const int _channels = 2;
@@ -56,24 +60,50 @@ class AudioService {
   };
 
   Future<void> playNote(String note) async {
+    await startNote(note);
+    await Future<void>.delayed(const Duration(milliseconds: 420));
+    await stopNote(note);
+  }
+
+  Future<void> startNote(String note) async {
+    if (_activeVoices.containsKey(note)) return;
+
+    final voice = AudioPlayer();
+    _activeVoices[note] = voice;
+
     final assetPath = _noteFiles[note];
     if (assetPath != null) {
-      final playedAsset = await _tryPlayAsset(assetPath);
+      final playedAsset = await _tryPlayAsset(voice, assetPath);
       if (playedAsset) return;
     }
 
     final frequency = _noteFrequencies[note];
     if (frequency == null) {
       debugPrint('No generated frequency for note: $note');
+      await stopNote(note);
       return;
     }
 
     await _playGeneratedTone(
+      player: voice,
       frequency: frequency,
-      durationMs: 1150,
-      volume: 0.62,
-      velocity: 0.78,
+      durationMs: 12000,
+      volume: 0.58,
+      velocity: 0.72,
     );
+  }
+
+  Future<void> stopNote(String note) async {
+    final voice = _activeVoices.remove(note);
+    if (voice == null) return;
+
+    try {
+      await voice.stop();
+    } catch (error) {
+      debugPrint('Piano note stop skipped for $note. Error: $error');
+    } finally {
+      await voice.dispose();
+    }
   }
 
   Future<void> playSuccess() async {
@@ -82,6 +112,7 @@ class AudioService {
 
   Future<void> playTap() async {
     await _playGeneratedTone(
+      player: _effectsPlayer,
       frequency: 880,
       durationMs: 100,
       volume: 0.26,
@@ -96,14 +127,47 @@ class AudioService {
   Future<void> playSongNotes(List<String> notes) async {
     for (final note in notes) {
       await playNote(note);
-      await Future<void>.delayed(const Duration(milliseconds: 170));
+      await Future<void>.delayed(const Duration(milliseconds: 120));
     }
   }
 
-  Future<bool> _tryPlayAsset(String assetPath) async {
+  Future<void> playSongDemo(Song song) async {
+    final token = ++_songDemoToken;
+    await stopAllNotes();
+
+    for (final step in song.steps) {
+      if (token != _songDemoToken) return;
+
+      final duration = song.durationForBeats(step.beats);
+      final note = step.note;
+      if (note == null) {
+        await Future<void>.delayed(duration);
+        continue;
+      }
+
+      await startNote(note);
+      final heldMilliseconds = (duration.inMilliseconds * 0.88).round();
+      await Future<void>.delayed(Duration(milliseconds: heldMilliseconds));
+      await stopNote(note);
+
+      final restMilliseconds = duration.inMilliseconds - heldMilliseconds;
+      if (restMilliseconds > 0) {
+        await Future<void>.delayed(Duration(milliseconds: restMilliseconds));
+      }
+    }
+  }
+
+  Future<void> stopAllNotes() async {
+    final notes = _activeVoices.keys.toList();
+    for (final note in notes) {
+      await stopNote(note);
+    }
+  }
+
+  Future<bool> _tryPlayAsset(AudioPlayer player, String assetPath) async {
     try {
-      await _player.stop();
-      await _player.play(AssetSource(assetPath));
+      await player.stop();
+      await player.play(AssetSource(assetPath));
       return true;
     } catch (error) {
       // Missing assets should never crash the app during MVP development.
@@ -121,6 +185,7 @@ class AudioService {
   }) async {
     for (final frequency in frequencies) {
       await _playGeneratedTone(
+        player: _effectsPlayer,
         frequency: frequency,
         durationMs: noteDurationMs,
         volume: 0.38,
@@ -131,20 +196,21 @@ class AudioService {
   }
 
   Future<void> _playGeneratedTone({
+    required AudioPlayer player,
     required double frequency,
     required int durationMs,
     required double volume,
     required double velocity,
   }) async {
     try {
-      await _player.stop();
+      await player.stop();
       final bytes = _buildWarmWoodPianoWav(
         frequency: frequency,
         durationMs: durationMs,
         volume: volume,
         velocity: velocity,
       );
-      await _player.play(BytesSource(bytes, mimeType: 'audio/wav'));
+      await player.play(BytesSource(bytes, mimeType: 'audio/wav'));
     } catch (error) {
       // Audio should never block the child from using the app.
       debugPrint('Generated piano tone skipped. Error: $error');
@@ -339,6 +405,8 @@ class AudioService {
   }
 
   Future<void> dispose() async {
-    await _player.dispose();
+    _songDemoToken++;
+    await stopAllNotes();
+    await _effectsPlayer.dispose();
   }
 }

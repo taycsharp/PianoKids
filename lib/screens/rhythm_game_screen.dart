@@ -62,14 +62,18 @@ class _RhythmGameScreenState extends State<RhythmGameScreen> {
   @override
   Widget build(BuildContext context) {
     final best = context.watch<ProgressProvider>().bestRhythmScore;
+    final audio = context.read<AudioService>();
 
     return Scaffold(
       appBar: AppBar(title: const Text('Rhythm Game')),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            children: [
+        child: ValueListenableBuilder<bool>(
+          valueListenable: audio.keyboardCacheReadyListenable,
+          builder: (context, isAudioReady, child) {
+            return Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                children: [
               Text('Best score: $best ⭐', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 24),
               Container(
@@ -93,18 +97,55 @@ class _RhythmGameScreenState extends State<RhythmGameScreen> {
               const Spacer(),
               if (_showReward) const StarReward(stars: 3, message: 'Rhythm Star!'),
               const Spacer(),
+              if (!isAudioReady) ...[
+                const _LoadingPianoSoundsBanner(),
+                const SizedBox(height: 14),
+              ],
               SizedBox(
                 width: 210,
                 height: 210,
                 child: FilledButton(
-                  onPressed: _tap,
+                  onPressed: isAudioReady ? _tap : null,
                   style: FilledButton.styleFrom(shape: const CircleBorder()),
                   child: const Text('TAP', style: TextStyle(fontSize: 38, fontWeight: FontWeight.w900)),
                 ),
               ),
-            ],
-          ),
+                ],
+              ),
+            );
+          },
         ),
+      ),
+    );
+  }
+}
+
+class _LoadingPianoSoundsBanner extends StatelessWidget {
+  const _LoadingPianoSoundsBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF3B0),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Row(
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 3),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Loading piano sounds…',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -5,8 +5,8 @@ import '../models/song.dart';
 class SongCard extends StatelessWidget {
   final Song song;
   final bool completed;
-  final VoidCallback onDemo;
-  final VoidCallback onPractice;
+  final VoidCallback? onDemo;
+  final VoidCallback? onPractice;
 
   const SongCard({
     super.key,

@@ -1,45 +1,38 @@
 # Happy Piano Kids - Codex Instructions
 
-## Project
+## Project Goal
 Happy Piano Kids is a Flutter piano-learning app for children aged 5–10.
 
-## Goals
-- Keep the UI colorful, playful, and simple for young children.
-- Teach real piano fundamentals: white keys, black keys, groups of 2 and 3 black keys, note recognition, rhythm, ear training, and simple songs.
-- Keep code clean, modular, and easy to extend.
+## Important Product Rules
+- Teach real piano fundamentals, not only white notes.
+- Include white keys and black keys.
+- Teach the 2-black-key and 3-black-key patterns.
+- Teach that C is left of the 2-black-key group.
+- Teach that F is left of the 3-black-key group.
+- Keep lessons simple, visual, playful, and suitable for beginners.
 
-## Tech
-- Flutter
-- Provider
-- shared_preferences
-- audioplayers
-- Local-first MVP
+## Flutter Rules
+- Use Provider for state management.
+- Use shared_preferences for local progress.
+- Keep the app offline-first.
+- Do not add backend, login, ads, or cloud sync in this MVP.
+- Keep code clean and easy to extend.
 
-## Coding rules
-- Use null safety.
-- Keep widgets reusable.
-- Avoid over-complex architecture.
-- Do not break existing screens.
-- Run before finishing:
-  - flutter analyze
-  - flutter test
+## Audio Rules
+- Generated piano notes must never crash the app.
+- If real audio samples are missing, fallback to generated piano tones.
+- Keep the piano sound warm and soft for children.
+- Do not claim exact Steinway or Yamaha reproduction unless using licensed samples.
 
-## Audio rules
-- Generated piano tones must not crash the app.
-- Keep optional asset-based note playback supported.
-- If real audio files are missing, fallback to generated tones.
-- Piano sound should be warm, soft, and suitable for kids.
-
-## UI rules
+## UI Rules
 - Large buttons.
-- Rounded cards.
-- Soft shadows.
+- Rounded colorful cards.
 - Simple English.
-- No ads.
-- No login required in MVP.
+- Kid-friendly icons.
+- Not too much text on one screen.
 
-## Review guidelines
-- Flag code that can crash when audio assets are missing.
-- Flag UI that is too text-heavy for children.
-- Flag regressions in lesson progression, progress saving, or piano keyboard behavior.
-- Flag missing tests for important state/progress logic.
+## Before Finishing
+Always run:
+
+flutter analyze
+flutter test

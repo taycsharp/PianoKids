@@ -26,12 +26,12 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
 
   String get _currentNote => _finished ? widget.song.notes.last : widget.song.notes[_currentIndex];
 
-  Future<void> _onNoteStarted(String note, int pressId) async {
+  Future<void> _onNoteStarted(String note, int _) async {
     final audio = context.read<AudioService>();
     final progressProvider = context.read<ProgressProvider>();
 
     setState(() => _pressedNotes.add(note));
-    await audio.startNoteForPress(note: note, pressId: pressId);
+    audio.playKeyboardNote(note);
 
     if (_finished) return;
 
@@ -58,9 +58,8 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
     }
   }
 
-  Future<void> _onNoteStopped(String note, int pressId) async {
+  void _onNoteStopped(String note, int _) {
     setState(() => _pressedNotes.remove(note));
-    await context.read<AudioService>().stopNoteForPress(pressId);
   }
 
   @override

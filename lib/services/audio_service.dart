@@ -9,23 +9,6 @@ import 'package:flutter_soloud/flutter_soloud.dart';
 
 import '../models/song.dart';
 
-class _ActivePianoVoice {
-  _ActivePianoVoice({required this.pointerId, required this.note})
-      : pressedAt = DateTime.now();
-
-  final int pointerId;
-  final String note;
-  SoundHandle? handle;
-  final DateTime pressedAt;
-  DateTime? releasedAt;
-  DateTime? startedAt;
-  bool isReleased = false;
-  bool isStopping = false;
-  bool disposed = false;
-
-  bool get hasStarted => startedAt != null;
-}
-
 /// Audio service for Happy Piano Kids.
 ///
 /// Audio strategy:
@@ -43,19 +26,15 @@ class AudioService {
   }
 
   final AudioPlayer _effectsPlayer = AudioPlayer();
-  final Map<int, _ActivePianoVoice> _activeVoicesByPressId = {};
-  final Map<String, Set<int>> _activePressIdsByNote = {};
-  var _nextSyntheticPressId = 0;
   final Map<String, bool> _assetAvailabilityByNote = {};
-  final Map<String, Uint8List> _keyboardToneBytesByNote = {};
   final Map<String, AudioSource> _keyboardSourcesByNote = {};
   late final Future<void> _keyboardAudioReady;
+  bool _isKeyboardAudioReady = false;
   var _songDemoToken = 0;
 
   static const double _demoTempoMultiplier = 1.0;
   static const int _songGapMs = 45;
-  static const int _minimumAudibleNoteMs = 150;
-  static const int _heldNoteGeneratedDurationMs = 8000;
+  static const int _keyboardNoteDurationMs = 1600;
   static const Duration _audioStartTimeout = Duration(milliseconds: 900);
   static const Duration _soloudLoadTimeout = Duration(seconds: 8);
 
@@ -98,85 +77,61 @@ class AudioService {
   };
 
   Future<void> playNote(String note) async {
-    final pressId = _nextLegacyPressId();
-    await startNoteForPress(note: note, pressId: pressId);
-    await Future<void>.delayed(const Duration(milliseconds: 420));
-    await stopNoteForPress(pressId);
+    await _playSongDemoNote(note, const Duration(milliseconds: 420));
   }
 
-  /// Starts a note for callers that do not have a pointer/press id.
+  /// Plays one short, naturally decaying keyboard note.
   ///
-  /// Keyboard widgets should prefer [startNoteForPress] so each physical press
-  /// owns exactly one voice handle and quick re-taps are not blocked by release
-  /// cleanup from an older press.
-  Future<void> startNote(String note) {
-    return startNoteForPress(note: note, pressId: _nextLegacyPressId());
-  }
-
-  /// Starts one piano voice for one physical key press.
-  ///
-  /// The [pressId] comes from the keyboard pointer tracking layer. A duplicate
-  /// down event for the same press id is ignored, but any other press id, even
-  /// for another note or a quick re-tap of the same note, can start immediately.
-  Future<void> startNoteForPress({required String note, required int pressId}) {
+  /// This is intentionally fire-and-forget for the live keyboard MVP: every
+  /// call asks SoLoud to start a new voice from a preloaded source, so chords
+  /// and repeated taps never wait for or stop older voices.
+  void playKeyboardNote(String note) {
     final debugNote = _debugNoteName(note);
-    final existingVoice = _activeVoicesByPressId[pressId];
-    if (existingVoice != null) {
-      if (existingVoice.note == note && !existingVoice.isReleased) {
-        debugPrint('Press $pressId already active for $debugNote');
-        return Future<void>.value();
-      }
-
-      debugPrint(
-        'Press $pressId moved from ${_debugNoteName(existingVoice.note)} '
-        'to $debugNote; stopping old voice',
-      );
-      unawaited(stopNoteForPress(pressId));
-    }
-
-    final frequency = _noteFrequencies[note];
-    if (frequency == null) {
-      debugPrint('No generated frequency for note: $debugNote');
-      return Future<void>.value();
-    }
-
-    final voice = _ActivePianoVoice(pointerId: pressId, note: note);
-    _activeVoicesByPressId[pressId] = voice;
-    _activePressIdsByNote.putIfAbsent(note, () => <int>{}).add(pressId);
-
-    // Keyboard playback uses one primary voice for each active physical press.
-    // This preserves polyphony, allows quick re-taps, and prevents duplicate
-    // starts from repeated down events for the same press id.
-    debugPrint('Starting press $pressId $debugNote');
-    unawaited(_playKeyboardNote(voice));
-    return Future<void>.value();
-  }
-
-  /// Stops only the voice owned by [pressId].
-  Future<void> stopNoteForPress(int pressId) async {
-    final voice = _activeVoicesByPressId[pressId];
-    if (voice == null) return;
-
-    final debugNote = _debugNoteName(voice.note);
-    voice.isReleased = true;
-    voice.releasedAt = DateTime.now();
-
-    if (!voice.hasStarted) {
-      debugPrint('Press released before player started: $debugNote');
+    if (!_isKeyboardAudioReady || !SoLoud.instance.isInitialized) {
+      debugPrint('Keyboard tone cache not ready for $debugNote');
       return;
     }
 
-    await _stopAndDisposeVoice(voice);
-  }
+    final source = _keyboardSourcesByNote[note];
+    if (source == null) {
+      debugPrint('No preloaded keyboard source for $debugNote');
+      return;
+    }
 
-  Future<void> stopNote(String note) async {
-    final pressIds = _activePressIdsByNote[note]?.toList();
-    if (pressIds == null || pressIds.isEmpty) return;
-
-    for (final pressId in pressIds) {
-      await stopNoteForPress(pressId);
+    try {
+      if (_assetAvailabilityByNote[note] == true) {
+        debugPrint('Using preloaded asset note: $debugNote');
+      } else {
+        debugPrint('Using preloaded generated note: $debugNote');
+      }
+      SoLoud.instance.play(source, volume: 0.78);
+    } catch (error) {
+      debugPrint('Keyboard piano note skipped for $debugNote. Error: $error');
     }
   }
+
+  /// Legacy API for non-keyboard callers. It now uses the same fire-and-forget
+  /// decaying note model as the live keyboard.
+  Future<void> startNote(String note) async {
+    playKeyboardNote(note);
+  }
+
+  /// Legacy press-aware API kept for screens that still pass pointer IDs.
+  /// Release is intentionally ignored so audio can decay naturally.
+  Future<void> startNoteForPress({
+    required String note,
+    required int pressId,
+  }) async {
+    playKeyboardNote(note);
+  }
+
+  /// Release only affects UI highlight in the keyboard widgets; audio is not
+  /// stopped for MVP live notes.
+  Future<void> stopNoteForPress(int pressId) async {}
+
+  /// Release only affects UI highlight in the keyboard widgets; audio is not
+  /// stopped for MVP live notes.
+  Future<void> stopNote(String note) async {}
 
   Future<void> playSuccess() async {
     await _playGeneratedMelody([523.25, 659.25, 783.99], noteDurationMs: 180);
@@ -225,10 +180,8 @@ class AudioService {
   }
 
   Future<void> stopAllNotes() async {
-    final pressIds = _activeVoicesByPressId.keys.toList();
-    for (final pressId in pressIds) {
-      await stopNoteForPress(pressId);
-    }
+    // Live keyboard notes are short, fire-and-forget SoLoud voices that decay
+    // naturally. There is no held-key keyboard voice lifecycle to stop.
   }
 
   Future<void> _loadAssetManifest() async {
@@ -287,14 +240,11 @@ class AudioService {
         }
 
         if (source == null) {
-          final bytes = _keyboardToneBytesByNote.putIfAbsent(
-            note,
-            () => _buildWarmWoodPianoWav(
-              frequency: entry.value,
-              durationMs: _heldNoteGeneratedDurationMs,
-              volume: 0.52,
-              velocity: 0.72,
-            ),
+          final bytes = _buildWarmWoodPianoWav(
+            frequency: entry.value,
+            durationMs: _keyboardNoteDurationMs,
+            volume: 0.52,
+            velocity: 0.72,
           );
           source = await soloud
               .loadMem(_keyboardToneFileName(note), bytes)
@@ -304,8 +254,10 @@ class AudioService {
         _keyboardSourcesByNote[note] = source;
       }
 
+      _isKeyboardAudioReady = true;
       debugPrint('Tone cache ready for keyboard');
     } catch (error) {
+      _isKeyboardAudioReady = false;
       debugPrint('Keyboard audio engine unavailable. Error: $error');
     }
   }
@@ -388,124 +340,6 @@ class AudioService {
       );
       await Future<void>.delayed(const Duration(milliseconds: 45));
     }
-  }
-
-  Future<void> _playKeyboardNote(_ActivePianoVoice voice) async {
-    final note = voice.note;
-    final debugNote = _debugNoteName(note);
-    try {
-      await _keyboardAudioReady.timeout(_soloudLoadTimeout);
-      if (_activeVoicesByPressId[voice.pointerId] != voice || voice.disposed) {
-        await _disposeFailedVoice(voice);
-        return;
-      }
-
-      final source = _keyboardSourcesByNote[note];
-      if (source == null || !SoLoud.instance.isInitialized) {
-        debugPrint('No preloaded keyboard source for $debugNote');
-        await _disposeFailedVoice(voice);
-        return;
-      }
-
-      if (_assetAvailabilityByNote[note] == true) {
-        debugPrint('Using bundled asset note: $debugNote');
-      } else {
-        debugPrint('Using cached sustain tone: $debugNote');
-      }
-
-      final handle = await Future<SoundHandle>.value(
-        SoLoud.instance.play(source, volume: 0.78),
-      ).timeout(_audioStartTimeout);
-
-      if (_activeVoicesByPressId[voice.pointerId] != voice || voice.disposed) {
-        await SoLoud.instance.stop(handle);
-        await _disposeFailedVoice(voice);
-        return;
-      }
-
-      voice.handle = handle;
-      voice.startedAt = DateTime.now();
-      debugPrint('Player started press ${voice.pointerId} $debugNote');
-
-      if (voice.isReleased) {
-        await _stopAndDisposeVoice(voice);
-      }
-    } on TimeoutException {
-      debugPrint('Keyboard piano tone start timed out for $debugNote.');
-      await _disposeFailedVoice(voice);
-    } catch (error) {
-      debugPrint('Keyboard piano tone skipped for $debugNote. Error: $error');
-      await _disposeFailedVoice(voice);
-    }
-  }
-
-  Future<void> _stopAndDisposeVoice(_ActivePianoVoice voice) async {
-    if (voice.disposed || voice.isStopping) return;
-    voice.isStopping = true;
-
-    final note = voice.note;
-    final debugNote = _debugNoteName(note);
-    final startedAt = voice.startedAt;
-    if (startedAt != null) {
-      final playingFor = DateTime.now()
-          .difference(startedAt)
-          .inMilliseconds;
-      final remainingMs = _minimumAudibleNoteMs - playingFor;
-      if (remainingMs > 0) {
-        debugPrint('Minimum tap release scheduled: $debugNote');
-        await Future<void>.delayed(Duration(milliseconds: remainingMs));
-      }
-    }
-
-    _removeActiveVoice(voice);
-    voice.disposed = true;
-
-    try {
-      debugPrint('Stopped press ${voice.pointerId} $debugNote');
-      final handle = voice.handle;
-      if (handle != null && SoLoud.instance.isInitialized) {
-        await SoLoud.instance.stop(handle);
-      }
-    } catch (error) {
-      debugPrint('Piano note stop skipped for $debugNote. Error: $error');
-    }
-  }
-
-  Future<void> _disposeFailedVoice(_ActivePianoVoice voice) async {
-    if (voice.disposed) return;
-    _removeActiveVoice(voice);
-    voice.disposed = true;
-    try {
-      final handle = voice.handle;
-      if (handle != null && SoLoud.instance.isInitialized) {
-        await SoLoud.instance.stop(handle);
-      }
-    } catch (_) {
-      // Audio cleanup should never break the app.
-    }
-  }
-
-  void _removeActiveVoice(_ActivePianoVoice voice) {
-    final currentVoice = _activeVoicesByPressId[voice.pointerId];
-    final voiceStillRegistered = currentVoice == voice;
-    if (voiceStillRegistered) {
-      _activeVoicesByPressId.remove(voice.pointerId);
-    }
-
-    // If the platform ever reuses a pointer id before an older voice finishes
-    // its quick-tap release, do not remove the newer voice's note lookup.
-    if (voiceStillRegistered || currentVoice?.note != voice.note) {
-      final pressIdsForNote = _activePressIdsByNote[voice.note];
-      pressIdsForNote?.remove(voice.pointerId);
-      if (pressIdsForNote != null && pressIdsForNote.isEmpty) {
-        _activePressIdsByNote.remove(voice.note);
-      }
-    }
-  }
-
-  int _nextLegacyPressId() {
-    _nextSyntheticPressId--;
-    return _nextSyntheticPressId;
   }
 
   Future<void> _playGeneratedTone({
@@ -744,7 +578,6 @@ class AudioService {
       }
     }
     _keyboardSourcesByNote.clear();
-    _keyboardToneBytesByNote.clear();
     await _effectsPlayer.dispose();
   }
 }

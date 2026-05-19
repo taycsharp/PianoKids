@@ -24,7 +24,6 @@ class SongStep {
     this.articulation,
     this.timingMultiplier = 1,
   })  : note = null,
-        assert(notes.length > 1),
         assert(beats > 0),
         assert(velocity >= 0 && velocity <= 1),
         assert(timingMultiplier > 0);

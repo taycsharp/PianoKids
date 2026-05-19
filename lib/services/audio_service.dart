@@ -78,7 +78,19 @@ class AudioService {
   /// Equal-tempered beginner piano note frequencies from C4 to C5.
   /// Black keys are included so kids learn the real piano keyboard pattern.
   static const Map<String, double> _noteFrequencies = {
-    'C': 261.63,
+    'C3': 130.81,
+    'C#3': 138.59,
+    'D3': 146.83,
+    'D#3': 155.56,
+    'E3': 164.81,
+    'F3': 174.61,
+    'F#3': 185.00,
+    'G3': 196.00,
+    'G#3': 207.65,
+    'A3': 220.00,
+    'A#3': 233.08,
+    'B3': 246.94,
+    'C4': 261.63,
     'C#': 277.18,
     'D': 293.66,
     'D#': 311.13,
@@ -90,11 +102,64 @@ class AudioService {
     'A': 440.00,
     'A#': 466.16,
     'B': 493.88,
-    'High C': 523.25,
+    'C#4': 277.18,
+    'D4': 293.66,
+    'D#4': 311.13,
+    'E4': 329.63,
+    'F4': 349.23,
+    'F#4': 369.99,
+    'G4': 392.00,
+    'G#4': 415.30,
+    'A4': 440.00,
+    'A#4': 466.16,
+    'B4': 493.88,
+    'C5': 523.25,
   };
 
+  static const Map<String, String> _keyboardNoteAliases = {
+    'C3': 'C3',
+    'C#3': 'C#3',
+    'D3': 'D3',
+    'D#3': 'D#3',
+    'E3': 'E3',
+    'F3': 'F3',
+    'F#3': 'F#3',
+    'G3': 'G3',
+    'G#3': 'G#3',
+    'A3': 'A3',
+    'A#3': 'A#3',
+    'B3': 'B3',
+    'C4': 'C4',
+    'C#4': 'C#4',
+    'D4': 'D4',
+    'D#4': 'D#4',
+    'E4': 'E4',
+    'F4': 'F4',
+    'F#4': 'F#4',
+    'G4': 'G4',
+    'G#4': 'G#4',
+    'A4': 'A4',
+    'A#4': 'A#4',
+    'B4': 'B4',
+    'C5': 'C5',
+    'C': 'C4',
+    'C#': 'C#4',
+    'D': 'D4',
+    'D#': 'D#4',
+    'E': 'E4',
+    'F': 'F4',
+    'F#': 'F#4',
+    'G': 'G4',
+    'G#': 'G#4',
+    'A': 'A4',
+    'A#': 'A#4',
+    'B': 'B4',
+    'High C': 'C5',
+  };
+
+
   Future<void> playNote(String note) async {
-    await playPianoNote(note, duration: const Duration(milliseconds: 520));
+    await playPianoNote(_normalizeKeyboardNote(note), duration: const Duration(milliseconds: 520));
   }
 
   /// Shared warm piano note path for lessons, songs, games, and live practice.
@@ -107,7 +172,7 @@ class AudioService {
     String note, {
     Duration duration = const Duration(milliseconds: 520),
   }) async {
-    await _playPianoNoteForDuration(note, duration);
+    await _playPianoNoteForDuration(_normalizeKeyboardNote(note), duration);
   }
 
   /// Plays one short, naturally decaying keyboard note.
@@ -118,7 +183,7 @@ class AudioService {
   void playKeyboardNote(String note) {
     unawaited(
       _playPreloadedPianoNote(
-        note,
+        _normalizeKeyboardNote(note),
         waitForCache: false,
       ).then<void>((_) {}),
     );
@@ -130,6 +195,7 @@ class AudioService {
   /// sustain/resonance voice. The sustain handle is stored by [pressId], so
   /// chords can release one note without stopping the others.
   void startKeyboardNoteForPress(String note, int pressId) {
+    note = _normalizeKeyboardNote(note);
     final debugNote = _debugNoteName(note);
     unawaited(_releaseKeyboardVoice(pressId, immediate: true));
 
@@ -175,7 +241,7 @@ class AudioService {
   /// Legacy API for non-keyboard callers. It now uses the same press-aware
   /// sustain model when a caller has a stable press ID.
   Future<void> startNote(String note) async {
-    playKeyboardNote(note);
+    playKeyboardNote(_normalizeKeyboardNote(note));
   }
 
   /// Legacy press-aware API kept for screens that still pass pointer IDs.
@@ -183,7 +249,7 @@ class AudioService {
     required String note,
     required int pressId,
   }) async {
-    startKeyboardNoteForPress(note, pressId);
+    startKeyboardNoteForPress(_normalizeKeyboardNote(note), pressId);
   }
 
   Future<void> stopNoteForPress(int pressId) async {
@@ -191,6 +257,10 @@ class AudioService {
   }
 
   Future<void> stopNote(String note) async {}
+
+  String _normalizeKeyboardNote(String note) {
+    return _keyboardNoteAliases[note] ?? note;
+  }
 
   Future<void> playSuccess() async {
     await _playGeneratedMelody([523.25, 659.25, 783.99], noteDurationMs: 180);
@@ -228,7 +298,7 @@ class AudioService {
         continue;
       }
 
-      await _playPianoNoteForDuration(note, duration);
+      await _playPianoNoteForDuration(_normalizeKeyboardNote(note), duration);
     }
   }
 

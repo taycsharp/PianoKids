@@ -8,6 +8,7 @@ import 'ear_training_screen.dart';
 import 'learning_path_screen.dart';
 import 'parent_zone_screen.dart';
 import 'piano_screen.dart';
+import 'two_octave_piano_screen.dart';
 import 'progress_screen.dart';
 import 'rhythm_game_screen.dart';
 import 'songs_screen.dart';
@@ -63,6 +64,14 @@ class HomeScreen extends StatelessWidget {
               emoji: '🎹',
               colors: const [AppTheme.blue, AppTheme.green],
               onTap: () => _go(context, const PianoScreen()),
+            ),
+            const SizedBox(height: 14),
+            AppCard(
+              title: 'Two Octave Piano',
+              subtitle: 'Play two rows',
+              emoji: '🎼',
+              colors: const [AppTheme.blue, AppTheme.purple],
+              onTap: () => _go(context, const TwoOctavePianoScreen()),
             ),
             const SizedBox(height: 14),
             AppCard(

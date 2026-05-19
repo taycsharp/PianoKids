@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 typedef PianoKeyPressChanged = void Function(String note, int pressId);
 
 class PianoKeyboard extends StatelessWidget {
+  final bool twoRowLayout;
   final bool showNoteNames;
   final ValueChanged<String>? onNotePressed;
   final ValueChanged<String>? onNoteStarted;
@@ -29,6 +30,7 @@ class PianoKeyboard extends StatelessWidget {
     this.highlightedNotes = const {},
     this.highlightedNotesListenable,
     this.height = 320,
+    this.twoRowLayout = false,
   });
 
   static String displayName(String note) => note.replaceAll('#', '♯');
@@ -51,6 +53,29 @@ class PianoKeyboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!twoRowLayout) {
+      return _HighlightedKeysBuilder(
+        highlightedNotes: highlightedNotes,
+        highlightedNotesListenable: highlightedNotesListenable,
+        builder: (context, activeHighlights) {
+          return _PianoOctaveRow(
+            row: const _KeyboardRowSpec(
+              octave: 4,
+              first: 'C4',
+              last: 'C5',
+              c4KeyId: 'C4',
+            ),
+            rowHeight: height.clamp(120.0, 260.0).toDouble(),
+            showNoteNames: showNoteNames,
+            activeHighlights: activeHighlights,
+            isHighlighted: _isHighlighted,
+            onStart: _startNote,
+            onStop: _stopNote,
+          );
+        },
+      );
+    }
+
     const rows = [
       _KeyboardRowSpec(octave: 3, first: 'C3', last: 'C4', c4KeyId: 'C4-lower'),
       _KeyboardRowSpec(octave: 4, first: 'C4', last: 'C5', c4KeyId: 'C4-upper'),
@@ -127,14 +152,12 @@ class _PianoOctaveRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
-      final isLandscape =
-          MediaQuery.orientationOf(context) == Orientation.landscape;
       const totalWhiteKeys = 8;
       const minWhiteKeyWidth = 52.0;
       final canFit = constraints.maxWidth >= totalWhiteKeys * minWhiteKeyWidth;
       final whiteKeyWidth = canFit
           ? constraints.maxWidth / totalWhiteKeys
-          : (isLandscape ? 68.0 : minWhiteKeyWidth);
+          : minWhiteKeyWidth;
       final rowWidth = canFit ? constraints.maxWidth : whiteKeyWidth * totalWhiteKeys;
       final blackKeyWidth = whiteKeyWidth * 0.58;
       final blackKeyHeight = rowHeight * 0.6;

@@ -28,7 +28,7 @@ void main() {
     expect(find.text('Start Learning'), findsOneWidget);
   });
 
-  testWidgets('duplicate C4 keys both trigger C4 note', (tester) async {
+  testWidgets('two-row keyboard duplicate C4 keys both trigger C4 note', (tester) async {
     final started = <String>[];
 
     await tester.pumpWidget(
@@ -36,7 +36,10 @@ void main() {
         home: Scaffold(
           body: SizedBox(
             width: 760,
-            child: PianoKeyboard(onKeyPressStarted: (note, _) => started.add(note)),
+            child: PianoKeyboard(
+              twoRowLayout: true,
+              onKeyPressStarted: (note, _) => started.add(note),
+            ),
           ),
         ),
       ),

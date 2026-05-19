@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_soloud/flutter_soloud.dart';
 
 import '../models/song.dart';
@@ -12,9 +11,10 @@ import '../models/song.dart';
 /// Audio service for Happy Piano Kids.
 ///
 /// Audio strategy:
-/// 1. Try to play real piano samples from assets.
-/// 2. If a sample is missing, generate a warm acoustic-style piano tone.
-/// 3. If audio fails, skip safely so the child can continue using the app.
+/// 1. Generate warm synthetic piano WAV tones in memory.
+/// 2. Use SoLoud memory playback for low-latency notes when available.
+/// 3. If SoLoud memory notes are not ready, play generated one-shot WAV notes.
+/// 4. If audio fails, skip safely so the child can continue using the app.
 ///
 /// Important: the generated tone is not a copyrighted sample or exact clone of
 /// Steinway, Yamaha, or any other brand. It is a brand-inspired, synthetic,
@@ -27,7 +27,6 @@ class AudioService {
 
   final AudioPlayer _effectsPlayer = AudioPlayer();
   final SoLoud _soloud = SoLoud.instance;
-  final Map<String, bool> _assetAvailabilityByNote = {};
   final Map<String, AudioSource> _keyboardSoundByNote = {};
   final Map<String, AudioSource> _keyboardAttackSoundByNote = {};
   final Map<String, AudioSource> _keyboardSustainSoundByNote = {};
@@ -58,22 +57,6 @@ class AudioService {
   static const int _sampleRate = 44100;
   static const int _channels = 2;
   static const int _bitsPerSample = 16;
-
-  static const Map<String, String> _noteFiles = {
-    'C': 'audio/notes/c.mp3',
-    'C#': 'audio/notes/c_sharp.mp3',
-    'D': 'audio/notes/d.mp3',
-    'D#': 'audio/notes/d_sharp.mp3',
-    'E': 'audio/notes/e.mp3',
-    'F': 'audio/notes/f.mp3',
-    'F#': 'audio/notes/f_sharp.mp3',
-    'G': 'audio/notes/g.mp3',
-    'G#': 'audio/notes/g_sharp.mp3',
-    'A': 'audio/notes/a.mp3',
-    'A#': 'audio/notes/a_sharp.mp3',
-    'B': 'audio/notes/b.mp3',
-    'High C': 'audio/notes/high_c.mp3',
-  };
 
   /// Equal-tempered beginner piano note frequencies from C4 to C5.
   /// Black keys are included so kids learn the real piano keyboard pattern.
@@ -181,11 +164,21 @@ class AudioService {
   /// The Play Piano screen uses [startKeyboardNoteForPress] so each held key can
   /// own and release its sustain voice independently.
   void playKeyboardNote(String note) {
+    final normalizedNote = _normalizeKeyboardNote(note);
     unawaited(
       _playPreloadedPianoNote(
-        _normalizeKeyboardNote(note),
+        normalizedNote,
         waitForCache: false,
-      ).then<void>((_) {}),
+      ).then<void>((playedFromCache) async {
+        if (playedFromCache) return;
+        final frequency = _noteFrequencies[normalizedNote];
+        if (frequency == null) return;
+        await _playFallbackPianoTone(
+          note: normalizedNote,
+          frequency: frequency,
+          durationMs: 700,
+        );
+      }),
     );
   }
 
@@ -203,7 +196,9 @@ class AudioService {
     final sustainSource = _keyboardSustainSoundByNote[note];
     if (!_isSoLoudReady || attackSource == null || sustainSource == null) {
       if (_keyboardDebugLogs) {
-        debugPrint('Keyboard press skipped: $debugNote cache is not ready');
+        debugPrint(
+          'Keyboard press fallback: $debugNote generated memory sound is not ready',
+        );
       }
       playKeyboardNote(note);
       return;
@@ -312,7 +307,6 @@ class AudioService {
 
   Future<void> _initializeKeyboardAudio() async {
     await Future.wait<void>([
-      _loadAssetManifest(),
       _prepareSoLoudKeyboardCache(),
     ]);
   }
@@ -397,28 +391,6 @@ class AudioService {
     }
   }
 
-  Future<void> _loadAssetManifest() async {
-    try {
-      final manifest = await AssetManifest.loadFromAssetBundle(rootBundle);
-      final availableAssets = manifest.listAssets().toSet();
-
-      for (final entry in _noteFiles.entries) {
-        final assetPath = entry.value;
-        final bundledPath = 'assets/$assetPath';
-        _assetAvailabilityByNote[entry.key] =
-            availableAssets.contains(assetPath) ||
-            availableAssets.contains(bundledPath);
-      }
-    } catch (error) {
-      debugPrint(
-        'Asset manifest unavailable. Using generated piano tones. Error: $error',
-      );
-      for (final note in _noteFiles.keys) {
-        _assetAvailabilityByNote[note] = false;
-      }
-    }
-  }
-
   SoundHandle? _playSoLoudKeyboardNote({
     required String debugNote,
     required AudioSource source,
@@ -451,23 +423,6 @@ class AudioService {
         'Keyboard note skipped: $debugNote SoLoud play failed. Error: $error',
       );
       return null;
-    }
-  }
-
-  Future<bool> _tryPlayAsset(
-    AudioPlayer player,
-    String note,
-    String assetPath,
-  ) async {
-    try {
-      await player.play(AssetSource(assetPath));
-      return true;
-    } catch (error) {
-      _assetAvailabilityByNote[note] = false;
-      debugPrint(
-        'Asset unavailable, skipping asset attempt: ${_debugNoteName(note)}',
-      );
-      return false;
     }
   }
 
@@ -574,27 +529,16 @@ class AudioService {
   }) async {
     final player = AudioPlayer();
     try {
-      final assetPath = _noteFiles[note];
-      var playedAsset = false;
-      if (assetPath != null && _assetAvailabilityByNote[note] == true) {
-        if (_keyboardDebugLogs) {
-          debugPrint('Using bundled asset note: ${_debugNoteName(note)}');
-        }
-        playedAsset = await _tryPlayAsset(player, note, assetPath);
+      if (_keyboardDebugLogs) {
+        debugPrint('Using generated note: ${_debugNoteName(note)}');
       }
-
-      if (!playedAsset) {
-        if (_keyboardDebugLogs) {
-          debugPrint('Using generated note: ${_debugNoteName(note)}');
-        }
-        await _playGeneratedTone(
-          player: player,
-          frequency: frequency,
-          durationMs: durationMs,
-          volume: 0.58,
-          velocity: 0.72,
-        );
-      }
+      await _playGeneratedTone(
+        player: player,
+        frequency: frequency,
+        durationMs: durationMs,
+        volume: 0.58,
+        velocity: 0.72,
+      );
 
       await Future<void>.delayed(Duration(milliseconds: durationMs));
       await player.stop();

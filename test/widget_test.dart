@@ -6,6 +6,8 @@ import 'package:happy_piano_kids/app.dart';
 import 'package:happy_piano_kids/providers/progress_provider.dart';
 import 'package:happy_piano_kids/services/audio_service.dart';
 import 'package:happy_piano_kids/services/progress_service.dart';
+import 'package:happy_piano_kids/screens/piano_screen.dart';
+import 'package:happy_piano_kids/screens/two_row_piano_screen.dart';
 import 'package:happy_piano_kids/widgets/piano_keyboard.dart';
 
 void main() {
@@ -57,5 +59,37 @@ void main() {
 
     expect(started, ['C4', 'C4']);
     expect(find.bySemanticsLabel('piano-key-E4'), findsOneWidget);
+  });
+
+  testWidgets('original Play Piano keeps message card and switches', (tester) async {
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<AudioService>(create: (_) => AudioService()),
+          ChangeNotifierProvider<ProgressProvider>(
+            create: (_) => ProgressProvider(ProgressService()),
+          ),
+        ],
+        child: const MaterialApp(home: PianoScreen()),
+      ),
+    );
+
+    expect(find.text('Show note names'), findsOneWidget);
+    expect(find.text('Fun reward mode'), findsOneWidget);
+  });
+
+  testWidgets('Two Octave Piano screen shows keyboard only', (tester) async {
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [Provider<AudioService>(create: (_) => AudioService())],
+        child: const MaterialApp(home: TwoRowPianoScreen()),
+      ),
+    );
+
+    expect(find.bySemanticsLabel('piano-key-C4-lower'), findsOneWidget);
+    expect(find.bySemanticsLabel('piano-key-C4-upper'), findsOneWidget);
+    expect(find.text('Show note names'), findsNothing);
+    expect(find.text('Fun reward mode'), findsNothing);
+    expect(find.textContaining('You played'), findsNothing);
   });
 }

@@ -42,7 +42,9 @@ class _TwoRowPianoScreenState extends State<TwoRowPianoScreen> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final keyboardHeight = (constraints.maxHeight - 20).clamp(280.0, constraints.maxHeight).toDouble();
+            final keyboardHeight = (constraints.maxHeight - 20)
+                .clamp(220.0, constraints.maxHeight)
+                .toDouble();
 
             return Padding(
               padding: const EdgeInsets.all(10),
@@ -58,7 +60,7 @@ class _TwoRowPianoScreenState extends State<TwoRowPianoScreen> {
                         child: PianoKeyboard(
                           twoRowLayout: true,
                           height: keyboardHeight,
-                          showNoteNames: true,
+                          showNoteNames: false,
                           highlightedNotesListenable: _pressedNotes,
                           onKeyPressStarted: _startNote,
                           onKeyPressStopped: _stopNote,

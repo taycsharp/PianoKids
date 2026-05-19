@@ -76,6 +76,48 @@ class SongData {
         SongStep.note('C', beats: 2),
       ],
     ),
+
+    Song(
+      id: 'blue_waltz',
+      title: 'Blue Waltz',
+      difficulty: 'Easy+',
+      tempoBpm: 96,
+      beatsPerMeasure: 3,
+      description: 'A longer 3/4 song with gentle bass-and-chord feel.',
+      steps: [
+        SongStep.note('C', beats: 1, velocity: 0.95, articulation: 'accent', timingMultiplier: 0.98),
+        SongStep.chord(['E', 'G'], beats: 1, velocity: 0.63, timingMultiplier: 1.02),
+        SongStep.chord(['E', 'G'], beats: 1, velocity: 0.58, timingMultiplier: 1.04),
+
+        SongStep.note('E', beats: 1, velocity: 0.92, articulation: 'accent', timingMultiplier: 0.98),
+        SongStep.chord(['G', 'High C'], beats: 1, velocity: 0.66, timingMultiplier: 1.01),
+        SongStep.chord(['G', 'High C'], beats: 1, velocity: 0.60, timingMultiplier: 1.03),
+
+        SongStep.note('G', beats: 1, velocity: 0.94, articulation: 'accent', timingMultiplier: 0.97),
+        SongStep.chord(['High C', 'E'], beats: 1, velocity: 0.67, timingMultiplier: 1.01),
+        SongStep.chord(['High C', 'E'], beats: 1, velocity: 0.61, timingMultiplier: 1.03),
+
+        SongStep.note('F', beats: 1, velocity: 0.91, articulation: 'accent', timingMultiplier: 0.99),
+        SongStep.chord(['A', 'High C'], beats: 1, velocity: 0.64, timingMultiplier: 1.02),
+        SongStep.chord(['A', 'High C'], beats: 1, velocity: 0.59, timingMultiplier: 1.04),
+
+        SongStep.note('E', beats: 1, velocity: 0.89, articulation: 'accent', timingMultiplier: 0.98),
+        SongStep.chord(['G', 'High C'], beats: 1, velocity: 0.64, timingMultiplier: 1.01),
+        SongStep.chord(['G', 'High C'], beats: 1, velocity: 0.56, timingMultiplier: 1.04),
+
+        SongStep.note('D', beats: 1, velocity: 0.88, articulation: 'accent', timingMultiplier: 0.99),
+        SongStep.chord(['F', 'A'], beats: 1, velocity: 0.62, timingMultiplier: 1.02),
+        SongStep.chord(['F', 'A'], beats: 1, velocity: 0.55, timingMultiplier: 1.05),
+
+        SongStep.note('G', beats: 1, velocity: 0.93, articulation: 'accent', timingMultiplier: 0.97),
+        SongStep.chord(['B', 'D'], beats: 1, velocity: 0.66, timingMultiplier: 1.01),
+        SongStep.chord(['B', 'D'], beats: 1, velocity: 0.60, timingMultiplier: 1.03),
+
+        SongStep.note('C', beats: 1.5, velocity: 0.84, timingMultiplier: 1.06),
+        SongStep.chord(['E', 'G'], beats: 0.75, velocity: 0.52, timingMultiplier: 1.07),
+        SongStep.note('C', beats: 0.75, velocity: 0.48, articulation: 'legato', timingMultiplier: 1.10),
+      ],
+    ),
     Song(
       id: 'ode_to_joy',
       title: 'Ode to Joy',

@@ -7,8 +7,19 @@ import '../services/audio_service.dart';
 import '../widgets/song_card.dart';
 import 'song_practice_screen.dart';
 
-class SongsScreen extends StatelessWidget {
+class SongsScreen extends StatefulWidget {
   const SongsScreen({super.key});
+
+  @override
+  State<SongsScreen> createState() => _SongsScreenState();
+}
+
+class _SongsScreenState extends State<SongsScreen> {
+  @override
+  void dispose() {
+    context.read<AudioService>().stopAllNotes();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +49,9 @@ class SongsScreen extends StatelessWidget {
                   completed: progress.progress.completedSongIds.contains(song.id),
                   onDemo: isAudioReady
                       ? () => context.read<AudioService>().playSongDemo(song)
+                      : null,
+                  onStop: isAudioReady
+                      ? () => context.read<AudioService>().stopAllNotes()
                       : null,
                   onPractice: isAudioReady
                       ? () => Navigator.of(context).push(

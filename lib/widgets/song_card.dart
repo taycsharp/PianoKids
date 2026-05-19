@@ -7,6 +7,7 @@ class SongCard extends StatelessWidget {
   final bool completed;
   final VoidCallback? onDemo;
   final VoidCallback? onPractice;
+  final VoidCallback? onStop;
 
   const SongCard({
     super.key,
@@ -14,6 +15,7 @@ class SongCard extends StatelessWidget {
     required this.completed,
     required this.onDemo,
     required this.onPractice,
+    required this.onStop,
   });
 
   @override
@@ -51,6 +53,14 @@ class SongCard extends StatelessWidget {
                   onPressed: onDemo,
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Demo'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onStop,
+                  icon: const Icon(Icons.stop),
+                  label: const Text('Stop'),
                 ),
               ),
               const SizedBox(width: 12),

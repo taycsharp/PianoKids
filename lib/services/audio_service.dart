@@ -215,20 +215,36 @@ class AudioService {
     final token = ++_songDemoToken;
     await stopAllNotes();
 
+    var beatInMeasure = 1;
+
     for (final step in song.steps) {
       if (token != _songDemoToken) return;
 
       final duration = song.durationForBeats(
         step.beats,
-        tempoMultiplier: _demoTempoMultiplier,
+        tempoMultiplier: _demoTempoMultiplier / step.timingMultiplier,
       );
-      final note = step.note;
-      if (note == null) {
+      if (step.isRest) {
         await Future<void>.delayed(duration);
-        continue;
+      } else {
+        final expressiveVelocity = _stepVelocityForBeat(
+          beatInMeasure,
+          song.beatsPerMeasure,
+          step.velocity,
+        );
+        await _playSongStep(
+          step.playableNotes,
+          duration,
+          velocity: expressiveVelocity,
+          articulation: step.articulation,
+        );
       }
 
-      await _playPianoNoteForDuration(note, duration);
+      beatInMeasure = _nextBeatInMeasure(
+        beatInMeasure,
+        step.beats,
+        song.beatsPerMeasure,
+      );
     }
   }
 
@@ -401,7 +417,11 @@ class AudioService {
     }
   }
 
-  Future<void> _playPianoNoteForDuration(String note, Duration duration) async {
+  Future<void> _playPianoNoteForDuration(
+    String note,
+    Duration duration, {
+    double velocity = 0.8,
+  }) async {
     final debugNote = _debugNoteName(note);
     final frequency = _noteFrequencies[note];
     if (frequency == null) {
@@ -419,12 +439,14 @@ class AudioService {
     final playedFromCache = await _playPreloadedPianoNote(
       note,
       waitForCache: true,
+      velocity: velocity,
     );
     if (!playedFromCache) {
       await _playFallbackPianoTone(
         note: note,
         frequency: frequency,
         durationMs: playMilliseconds,
+        velocity: velocity,
       );
     } else {
       await Future<void>.delayed(Duration(milliseconds: playMilliseconds));
@@ -432,6 +454,63 @@ class AudioService {
     if (gapMilliseconds > 0) {
       await Future<void>.delayed(Duration(milliseconds: gapMilliseconds));
     }
+  }
+
+  Future<void> _playSongStep(
+    List<String> notes,
+    Duration duration, {
+    required double velocity,
+    String? articulation,
+  }) async {
+    if (notes.isEmpty) {
+      await Future<void>.delayed(duration);
+      return;
+    }
+
+    final lengthMultiplier = switch (articulation) {
+      'staccato' => 0.58,
+      'accent' => 0.82,
+      'legato' => 0.95,
+      _ => 0.88,
+    };
+
+    final playableDuration = Duration(
+      milliseconds: math.max(
+        80,
+        (duration.inMilliseconds * lengthMultiplier).round(),
+      ),
+    );
+
+    await Future.wait<void>([
+      for (final note in notes)
+        _playPianoNoteForDuration(
+          note,
+          playableDuration,
+          velocity: velocity,
+        ),
+    ]);
+
+    if (playableDuration < duration) {
+      await Future<void>.delayed(duration - playableDuration);
+    }
+  }
+
+  double _stepVelocityForBeat(
+    int beatInMeasure,
+    int beatsPerMeasure,
+    double baseVelocity,
+  ) {
+    final beatWeight = beatInMeasure == 1
+        ? 1.0
+        : beatsPerMeasure == 3
+            ? 0.84
+            : 0.9;
+    return (baseVelocity * beatWeight).clamp(0.25, 1.0);
+  }
+
+  int _nextBeatInMeasure(int beatInMeasure, double beats, int beatsPerMeasure) {
+    final move = math.max(1, beats.round());
+    return ((beatInMeasure - 1 + move) % beatsPerMeasure) + 1;
   }
 
   Future<void> _releaseKeyboardVoice(
@@ -460,6 +539,7 @@ class AudioService {
   Future<bool> _playPreloadedPianoNote(
     String note, {
     required bool waitForCache,
+    double velocity = 0.8,
   }) async {
     final debugNote = _debugNoteName(note);
 
@@ -493,6 +573,7 @@ class AudioService {
       debugNote: debugNote,
       source: source,
       sampleInfo: _keyboardSampleInfoByNote[note],
+      volume: (0.38 + velocity * 0.6).clamp(0.2, 1.0),
     );
     return handle != null;
   }
@@ -501,6 +582,7 @@ class AudioService {
     required String note,
     required double frequency,
     required int durationMs,
+    required double velocity,
   }) async {
     final player = AudioPlayer();
     try {
@@ -521,8 +603,8 @@ class AudioService {
           player: player,
           frequency: frequency,
           durationMs: durationMs,
-          volume: 0.58,
-          velocity: 0.72,
+          volume: (0.26 + velocity * 0.44).clamp(0.2, 0.82),
+          velocity: velocity,
         );
       }
 

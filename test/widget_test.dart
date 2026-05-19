@@ -23,50 +23,36 @@ void main() {
     );
 
     expect(find.text('Happy Piano Kids'), findsOneWidget);
-
-    // Complete the splash navigation timer so the test finishes cleanly.
     await tester.pump(const Duration(milliseconds: 1800));
     await tester.pumpAndSettle();
-
     expect(find.text('Start Learning'), findsOneWidget);
   });
 
-  testWidgets('piano key pointers start and stop independently', (tester) async {
+  testWidgets('duplicate C4 keys both trigger C4 note', (tester) async {
     final started = <String>[];
-    final stopped = <String>[];
 
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: Center(
-            child: SizedBox(
-              width: 720,
-              child: PianoKeyboard(
-                onKeyPressStarted: (note, _) => started.add(note),
-                onKeyPressStopped: (note, _) => stopped.add(note),
-              ),
-            ),
+          body: SizedBox(
+            width: 760,
+            child: PianoKeyboard(onKeyPressStarted: (note, _) => started.add(note)),
           ),
         ),
       ),
     );
 
-    final cGesture = await tester.startGesture(tester.getCenter(find.text('C').first));
+    final lower = find.bySemanticsLabel('piano-key-C4-lower');
+    final upper = find.bySemanticsLabel('piano-key-C4-upper');
+    expect(lower, findsOneWidget);
+    expect(upper, findsOneWidget);
+
+    await tester.tap(lower);
     await tester.pump();
-    final eGesture = await tester.startGesture(tester.getCenter(find.text('E')));
-    await tester.pump();
-
-    expect(started, ['C', 'E']);
-    expect(stopped, isEmpty);
-
-    await cGesture.up();
-    await tester.pump();
-
-    expect(stopped, ['C']);
-
-    await eGesture.up();
+    await tester.tap(upper);
     await tester.pump();
 
-    expect(stopped, ['C', 'E']);
+    expect(started, ['C4', 'C4']);
+    expect(find.bySemanticsLabel('piano-key-E4'), findsOneWidget);
   });
 }

@@ -118,7 +118,10 @@ class _PianoScreenState extends State<PianoScreen> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final isCompactHeight = constraints.maxHeight < 560;
-            final keyboardHeight = isCompactHeight ? 200.0 : 220.0;
+            final isLandscape = MediaQuery.orientationOf(context) == Orientation.landscape;
+            final keyboardHeight = isLandscape
+                ? (constraints.maxHeight * 0.52).clamp(260.0, 320.0).toDouble()
+                : (isCompactHeight ? 300.0 : 340.0);
 
             return Padding(
               padding: EdgeInsets.all(isCompactHeight ? 14 : 18),

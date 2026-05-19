@@ -99,11 +99,26 @@ class PianoKeyboard extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        const whiteKeyWidth = 42.0;
-        final keyboardWidth = whiteNotes.length * whiteKeyWidth;
-        final keyWidth = whiteKeyWidth;
+        final isLandscape =
+            MediaQuery.orientationOf(context) == Orientation.landscape;
+        const totalWhiteKeys = 15;
+        const minWhiteKeyWidth = 46.0;
+        const preferredLandscapeWhiteKeyWidth = 64.0;
+        final fitToViewport = constraints.maxWidth >= totalWhiteKeys * minWhiteKeyWidth;
+
+        final keyWidth = fitToViewport
+            ? constraints.maxWidth / totalWhiteKeys
+            : (isLandscape
+                  ? preferredLandscapeWhiteKeyWidth
+                  : minWhiteKeyWidth);
+
+        final keyboardWidth = fitToViewport
+            ? constraints.maxWidth
+            : totalWhiteKeys * keyWidth;
         final blackKeyWidth = keyWidth * 0.58;
-        final keyboardHeight = height.clamp(190.0, 260.0).toDouble();
+
+        final desiredKeyboardHeight = isLandscape ? height + 26 : height;
+        final keyboardHeight = desiredKeyboardHeight.clamp(190.0, 260.0).toDouble();
         final blackKeyHeight = keyboardHeight * 0.6;
 
         return SingleChildScrollView(

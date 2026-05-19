@@ -160,7 +160,7 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
                 PrimaryButton(
                   text: target == null ? 'Hear sound' : 'Hear ${_displayNote(target)}',
                   icon: Icons.volume_up,
-                  onPressed: isAudioReady ? _playInstruction : null,
+                  onPressed: _playInstruction,
                 ),
                 if (!isAudioReady) ...[
                   const SizedBox(height: 12),
@@ -197,17 +197,14 @@ class _LessonDetailScreenState extends State<LessonDetailScreen> {
               ),
               const SizedBox(height: 16),
               RepaintBoundary(
-                child: AbsorbPointer(
-                  absorbing: !isAudioReady,
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 180),
-                    opacity: isAudioReady ? 1 : 0.55,
-                    child: PianoKeyboard(
-                      showNoteNames: true,
-                      highlightedNotes: _pressedNotes,
-                      onKeyPressStarted: _onNoteStarted,
-                      onKeyPressStopped: _onNoteStopped,
-                    ),
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 180),
+                  opacity: isAudioReady ? 1 : 0.55,
+                  child: PianoKeyboard(
+                    showNoteNames: true,
+                    highlightedNotes: _pressedNotes,
+                    onKeyPressStarted: _onNoteStarted,
+                    onKeyPressStopped: _onNoteStopped,
                   ),
                 ),
               ),

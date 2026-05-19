@@ -69,4 +69,44 @@ void main() {
 
     expect(stopped, ['C', 'E']);
   });
+
+  testWidgets(
+    'piano keyboard remains tappable while audio readiness is false',
+    (tester) async {
+      final started = <String>[];
+      final stopped = <String>[];
+      final isKeyboardReady = ValueNotifier<bool>(false);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 720,
+              child: ValueListenableBuilder<bool>(
+                valueListenable: isKeyboardReady,
+                builder: (context, ready, child) {
+                  return AnimatedOpacity(
+                    duration: const Duration(milliseconds: 180),
+                    opacity: ready ? 1 : 0.55,
+                    child: PianoKeyboard(
+                      onKeyPressStarted: (note, _) => started.add(note),
+                      onKeyPressStopped: (note, _) => stopped.add(note),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byType(PianoKeyboard), findsOneWidget);
+      await tester.tap(find.text('C').first);
+      await tester.pumpAndSettle();
+
+      expect(started, isNotEmpty);
+      expect(stopped, isNotEmpty);
+      isKeyboardReady.dispose();
+    },
+  );
 }

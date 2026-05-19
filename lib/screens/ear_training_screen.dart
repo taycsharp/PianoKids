@@ -75,7 +75,7 @@ class _EarTrainingScreenState extends State<EarTrainingScreen> {
                 width: double.infinity,
                 height: 74,
                 child: FilledButton.icon(
-                  onPressed: isAudioReady ? _playQuestion : null,
+                  onPressed: _playQuestion,
                   icon: const Icon(Icons.volume_up, size: 32),
                   label: const Text('Play Note', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
                 ),
@@ -88,7 +88,7 @@ class _EarTrainingScreenState extends State<EarTrainingScreen> {
                     width: double.infinity,
                     height: 68,
                     child: OutlinedButton(
-                      onPressed: isAudioReady ? () => _choose(note) : null,
+                      onPressed: () => _choose(note),
                       child: Text(note, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
                     ),
                   ),

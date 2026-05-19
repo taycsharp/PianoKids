@@ -11,9 +11,10 @@ import '../models/song.dart';
 /// Audio service for Happy Piano Kids.
 ///
 /// Audio strategy:
-/// 1. Try to play real piano samples from assets.
-/// 2. If a sample is missing, generate a warm acoustic-style piano tone.
-/// 3. If audio fails, skip safely so the child can continue using the app.
+/// 1. Generate warm synthetic piano WAV tones in memory.
+/// 2. Use SoLoud memory playback for low-latency notes when available.
+/// 3. If SoLoud memory notes are not ready, play generated one-shot WAV notes.
+/// 4. If audio fails, skip safely so the child can continue using the app.
 ///
 /// Important: the generated tone is not a copyrighted sample or exact clone of
 /// Steinway, Yamaha, or any other brand. It is a brand-inspired, synthetic,
@@ -163,11 +164,21 @@ class AudioService {
   /// The Play Piano screen uses [startKeyboardNoteForPress] so each held key can
   /// own and release its sustain voice independently.
   void playKeyboardNote(String note) {
+    final normalizedNote = _normalizeKeyboardNote(note);
     unawaited(
       _playPreloadedPianoNote(
-        _normalizeKeyboardNote(note),
+        normalizedNote,
         waitForCache: false,
-      ).then<void>((_) {}),
+      ).then<void>((playedFromCache) async {
+        if (playedFromCache) return;
+        final frequency = _noteFrequencies[normalizedNote];
+        if (frequency == null) return;
+        await _playFallbackPianoTone(
+          note: normalizedNote,
+          frequency: frequency,
+          durationMs: 700,
+        );
+      }),
     );
   }
 
@@ -185,7 +196,9 @@ class AudioService {
     final sustainSource = _keyboardSustainSoundByNote[note];
     if (!_isSoLoudReady || attackSource == null || sustainSource == null) {
       if (_keyboardDebugLogs) {
-        debugPrint('Keyboard press skipped: $debugNote cache is not ready');
+        debugPrint(
+          'Keyboard press fallback: $debugNote generated memory sound is not ready',
+        );
       }
       playKeyboardNote(note);
       return;

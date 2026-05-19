@@ -105,7 +105,7 @@ class _RhythmGameScreenState extends State<RhythmGameScreen> {
                 width: 210,
                 height: 210,
                 child: FilledButton(
-                  onPressed: isAudioReady ? _tap : null,
+                  onPressed: _tap,
                   style: FilledButton.styleFrom(shape: const CircleBorder()),
                   child: const Text('TAP', style: TextStyle(fontSize: 38, fontWeight: FontWeight.w900)),
                 ),

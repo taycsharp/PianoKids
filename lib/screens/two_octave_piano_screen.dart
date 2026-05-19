@@ -50,16 +50,13 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
               child: ValueListenableBuilder<bool>(
                 valueListenable: audio.keyboardCacheReadyListenable,
                 builder: (context, isKeyboardReady, child) {
-                  return AbsorbPointer(
-                    absorbing: !isKeyboardReady,
-                    child: AnimatedOpacity(
-                      duration: const Duration(milliseconds: 180),
-                      opacity: isKeyboardReady ? 1 : 0.55,
-                      child: TwoOctaveKeyboard(
-                        highlightedNotesListenable: _pressedNotes,
-                        onKeyPressStarted: _startNote,
-                        onKeyPressStopped: _stopNote,
-                      ),
+                  return AnimatedOpacity(
+                    duration: const Duration(milliseconds: 180),
+                    opacity: isKeyboardReady ? 1 : 0.55,
+                    child: TwoOctaveKeyboard(
+                      highlightedNotesListenable: _pressedNotes,
+                      onKeyPressStarted: _startNote,
+                      onKeyPressStopped: _stopNote,
                     ),
                   );
                 },

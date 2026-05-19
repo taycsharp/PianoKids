@@ -103,17 +103,14 @@ class _SongPracticeScreenState extends State<SongPracticeScreen> {
                       const SizedBox(height: 12),
                     ],
                     RepaintBoundary(
-                      child: AbsorbPointer(
-                        absorbing: !isAudioReady,
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 180),
-                          opacity: isAudioReady ? 1 : 0.55,
-                          child: PianoKeyboard(
-                            showNoteNames: true,
-                            highlightedNotes: _pressedNotes,
-                            onKeyPressStarted: _onNoteStarted,
-                            onKeyPressStopped: _onNoteStopped,
-                          ),
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 180),
+                        opacity: isAudioReady ? 1 : 0.55,
+                        child: PianoKeyboard(
+                          showNoteNames: true,
+                          highlightedNotes: _pressedNotes,
+                          onKeyPressStarted: _onNoteStarted,
+                          onKeyPressStopped: _onNoteStopped,
                         ),
                       ),
                     ),

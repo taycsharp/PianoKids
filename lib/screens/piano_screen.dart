@@ -182,18 +182,15 @@ class _PianoScreenState extends State<PianoScreen> {
                       valueListenable: audio.keyboardCacheReadyListenable,
                       builder: (context, isKeyboardReady, child) {
                         return RepaintBoundary(
-                          child: AbsorbPointer(
-                            absorbing: !isKeyboardReady,
-                            child: AnimatedOpacity(
-                              duration: const Duration(milliseconds: 180),
-                              opacity: isKeyboardReady ? 1 : 0.55,
-                              child: PianoKeyboard(
-                                height: keyboardHeight,
-                                showNoteNames: _showNames,
-                                highlightedNotesListenable: _pressedNotes,
-                                onKeyPressStarted: _startNote,
-                                onKeyPressStopped: _stopNote,
-                              ),
+                          child: AnimatedOpacity(
+                            duration: const Duration(milliseconds: 180),
+                            opacity: isKeyboardReady ? 1 : 0.55,
+                            child: PianoKeyboard(
+                              height: keyboardHeight,
+                              showNoteNames: _showNames,
+                              highlightedNotesListenable: _pressedNotes,
+                              onKeyPressStarted: _startNote,
+                              onKeyPressStopped: _stopNote,
                             ),
                           ),
                         );

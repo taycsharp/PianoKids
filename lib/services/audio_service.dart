@@ -75,22 +75,21 @@ class AudioService {
     'High C': 'audio/notes/high_c.mp3',
   };
 
-  /// Equal-tempered beginner piano note frequencies from C4 to C5.
-  /// Black keys are included so kids learn the real piano keyboard pattern.
-  static const Map<String, double> _noteFrequencies = {
-    'C': 261.63,
-    'C#': 277.18,
-    'D': 293.66,
-    'D#': 311.13,
-    'E': 329.63,
-    'F': 349.23,
-    'F#': 369.99,
-    'G': 392.00,
-    'G#': 415.30,
-    'A': 440.00,
-    'A#': 466.16,
-    'B': 493.88,
-    'High C': 523.25,
+  static final Map<String, double> _noteFrequencies = _buildNoteFrequencies();
+  static const Map<String, String> _legacyToModernNoteMap = {
+    'C': 'C4',
+    'C#': 'C#4',
+    'D': 'D4',
+    'D#': 'D#4',
+    'E': 'E4',
+    'F': 'F4',
+    'F#': 'F#4',
+    'G': 'G4',
+    'G#': 'G#4',
+    'A': 'A4',
+    'A#': 'A#4',
+    'B': 'B4',
+    'High C': 'C5',
   };
 
   Future<void> playNote(String note) async {
@@ -107,7 +106,7 @@ class AudioService {
     String note, {
     Duration duration = const Duration(milliseconds: 520),
   }) async {
-    await _playPianoNoteForDuration(note, duration);
+    await _playPianoNoteForDuration(_normalizeNoteName(note), duration);
   }
 
   /// Plays one short, naturally decaying keyboard note.
@@ -116,9 +115,10 @@ class AudioService {
   /// The Play Piano screen uses [startKeyboardNoteForPress] so each held key can
   /// own and release its sustain voice independently.
   void playKeyboardNote(String note) {
+    final normalizedNote = _normalizeNoteName(note);
     unawaited(
       _playPreloadedPianoNote(
-        note,
+        normalizedNote,
         waitForCache: false,
       ).then<void>((_) {}),
     );
@@ -130,23 +130,24 @@ class AudioService {
   /// sustain/resonance voice. The sustain handle is stored by [pressId], so
   /// chords can release one note without stopping the others.
   void startKeyboardNoteForPress(String note, int pressId) {
-    final debugNote = _debugNoteName(note);
+    final normalizedNote = _normalizeNoteName(note);
+    final debugNote = _debugNoteName(normalizedNote);
     unawaited(_releaseKeyboardVoice(pressId, immediate: true));
 
-    final attackSource = _keyboardAttackSoundByNote[note];
-    final sustainSource = _keyboardSustainSoundByNote[note];
+    final attackSource = _keyboardAttackSoundByNote[normalizedNote];
+    final sustainSource = _keyboardSustainSoundByNote[normalizedNote];
     if (!_isSoLoudReady || attackSource == null || sustainSource == null) {
       if (_keyboardDebugLogs) {
         debugPrint('Keyboard press skipped: $debugNote cache is not ready');
       }
-      playKeyboardNote(note);
+      playKeyboardNote(normalizedNote);
       return;
     }
 
     _playSoLoudKeyboardNote(
       debugNote: '$debugNote attack',
       source: attackSource,
-      sampleInfo: _keyboardSampleInfoByNote[note],
+      sampleInfo: _keyboardSampleInfoByNote[normalizedNote],
       volume: 0.86,
     );
 
@@ -160,7 +161,7 @@ class AudioService {
 
     _activeKeyboardVoicesByPressId[pressId] = ActiveKeyboardVoice(
       pressId: pressId,
-      note: note,
+      note: normalizedNote,
       handle: sustainHandle,
       startedAt: DateTime.now(),
     );
@@ -577,8 +578,21 @@ class AudioService {
   }
 
   String _debugNoteName(String note) {
-    if (note == 'High C') return 'C5';
-    return '${note}4';
+    return _normalizeNoteName(note);
+  }
+
+  String _normalizeNoteName(String note) => _legacyToModernNoteMap[note] ?? note;
+
+  static Map<String, double> _buildNoteFrequencies() {
+    final notes = <String, double>{};
+    const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    for (var midiNote = 48; midiNote <= 72; midiNote++) {
+      final octave = (midiNote ~/ 12) - 1;
+      final name = noteNames[midiNote % 12];
+      final frequency = 440.0 * math.pow(2, (midiNote - 69) / 12);
+      notes['$name$octave'] = frequency.toDouble();
+    }
+    return notes;
   }
 
   _GeneratedPianoWav _buildDiagnosticClickToneWav({required double frequency}) {

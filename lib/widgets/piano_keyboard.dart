@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 
 typedef PianoKeyPressChanged = void Function(String note, int pressId);
 
-/// A beginner-friendly one-octave piano keyboard.
+/// A beginner-friendly two-octave piano keyboard (C3 to C5).
 ///
 /// It shows the real visual relationship between:
-/// - white keys: C D E F G A B High C
-/// - black keys: C# D# F# G# A#
+/// - white keys: C3..B3, C4..B4, C5
+/// - black keys: C#3 D#3 F#3 G#3 A#3, C#4 D#4 F#4 G#4 A#4
 ///
 /// For early piano education, this is important because children should learn
 /// that C is found just to the left of the group of two black keys.
@@ -25,17 +25,37 @@ class PianoKeyboard extends StatelessWidget {
 
   static const bool _keyboardDebugLogs = false;
 
-  static const whiteNotes = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'High C'];
-  static const blackNotes = ['C#', 'D#', 'F#', 'G#', 'A#'];
+  static const whiteNotes = [
+    'C3',
+    'D3',
+    'E3',
+    'F3',
+    'G3',
+    'A3',
+    'B3',
+    'C4',
+    'D4',
+    'E4',
+    'F4',
+    'G4',
+    'A4',
+    'B4',
+    'C5',
+  ];
 
   /// Black key positions are measured as boundaries between white keys.
   /// C# sits between C and D, D# between D and E, etc.
   static const Map<String, double> blackKeyBoundaryPositions = {
-    'C#': 1,
-    'D#': 2,
-    'F#': 4,
-    'G#': 5,
-    'A#': 6,
+    'C#3': 1,
+    'D#3': 2,
+    'F#3': 4,
+    'G#3': 5,
+    'A#3': 6,
+    'C#4': 8,
+    'D#4': 9,
+    'F#4': 11,
+    'G#4': 12,
+    'A#4': 13,
   };
 
   const PianoKeyboard({
@@ -53,8 +73,11 @@ class PianoKeyboard extends StatelessWidget {
   });
 
   static String displayName(String note) {
-    if (note == 'High C') return 'C';
     return note.replaceAll('#', '♯');
+  }
+
+  static String noteNameWithoutOctave(String note) {
+    return note.replaceAll(RegExp(r'\d'), '').replaceAll('#', '♯');
   }
 
   bool _isHighlighted(String note, Set<String> activeHighlights) {
@@ -76,62 +99,69 @@ class PianoKeyboard extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final keyWidth = constraints.maxWidth / whiteNotes.length;
+        const whiteKeyWidth = 42.0;
+        final keyboardWidth = whiteNotes.length * whiteKeyWidth;
+        final keyWidth = whiteKeyWidth;
         final blackKeyWidth = keyWidth * 0.58;
         final keyboardHeight = height.clamp(190.0, 260.0).toDouble();
         final blackKeyHeight = keyboardHeight * 0.6;
 
-        return Container(
-          height: keyboardHeight,
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF34344A),
-            borderRadius: BorderRadius.circular(26),
-          ),
-          child: _HighlightedKeysBuilder(
-            highlightedNotes: highlightedNotes,
-            highlightedNotesListenable: highlightedNotesListenable,
-            builder: (context, activeHighlights) {
-              return Stack(
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (final note in whiteNotes)
-                        Expanded(
-                          child: _WhiteKey(
-                            note: note,
-                            showName: showNoteNames,
-                            isHighlighted: _isHighlighted(
-                              note,
-                              activeHighlights,
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Container(
+            width: keyboardWidth + 16,
+            height: keyboardHeight,
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF34344A),
+              borderRadius: BorderRadius.circular(26),
+            ),
+            child: _HighlightedKeysBuilder(
+              highlightedNotes: highlightedNotes,
+              highlightedNotesListenable: highlightedNotesListenable,
+              builder: (context, activeHighlights) {
+                return Stack(
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (final note in whiteNotes)
+                          SizedBox(
+                            width: keyWidth,
+                            child: _WhiteKey(
+                              note: note,
+                              showName: showNoteNames,
+                              isHighlighted: _isHighlighted(
+                                note,
+                                activeHighlights,
+                              ),
+                              onStart: (pressId) => _startNote(note, pressId),
+                              onStop: (pressId) => _stopNote(note, pressId),
                             ),
-                            onStart: (pressId) => _startNote(note, pressId),
-                            onStop: (pressId) => _stopNote(note, pressId),
                           ),
-                        ),
-                    ],
-                  ),
-                  for (final entry in blackKeyBoundaryPositions.entries)
-                    Positioned(
-                      left: entry.value * keyWidth - blackKeyWidth / 2,
-                      top: 0,
-                      width: blackKeyWidth,
-                      height: blackKeyHeight,
-                      child: _BlackKey(
-                        note: entry.key,
-                        showName: showNoteNames,
-                        isHighlighted: _isHighlighted(
-                          entry.key,
-                          activeHighlights,
-                        ),
-                        onStart: (pressId) => _startNote(entry.key, pressId),
-                        onStop: (pressId) => _stopNote(entry.key, pressId),
-                      ),
+                      ],
                     ),
-                ],
-              );
-            },
+                    for (final entry in blackKeyBoundaryPositions.entries)
+                      Positioned(
+                        left: entry.value * keyWidth - blackKeyWidth / 2,
+                        top: 0,
+                        width: blackKeyWidth,
+                        height: blackKeyHeight,
+                        child: _BlackKey(
+                          note: entry.key,
+                          showName: showNoteNames,
+                          isHighlighted: _isHighlighted(
+                            entry.key,
+                            activeHighlights,
+                          ),
+                          onStart: (pressId) => _startNote(entry.key, pressId),
+                          onStop: (pressId) => _stopNote(entry.key, pressId),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
           ),
         );
       },
@@ -221,10 +251,10 @@ class _WhiteKey extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.only(bottom: 14),
               child: Text(
-                showName ? PianoKeyboard.displayName(note) : '🎈',
+                showName ? PianoKeyboard.noteNameWithoutOctave(note) : '🎈',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: note == 'High C' ? 16 : 19,
+                  fontSize: 18,
                   fontWeight: FontWeight.w900,
                   color: const Color(0xFF34344A),
                 ),
@@ -286,7 +316,7 @@ class _BlackKey extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: Text(
-              showName ? PianoKeyboard.displayName(note) : '⭐',
+              showName ? PianoKeyboard.noteNameWithoutOctave(note) : '⭐',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Colors.white,
@@ -381,8 +411,7 @@ class _PressablePianoKeyState extends State<_PressablePianoKey> {
   }
 
   String _debugNoteName(String note) {
-    if (note == 'High C') return 'C5';
-    return '${note}4';
+    return note;
   }
 
   @override

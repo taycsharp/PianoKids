@@ -25,7 +25,7 @@ class _PianoScreenState extends State<PianoScreen> {
   final ValueNotifier<String> _message = ValueNotifier('Play any note!');
   DateTime _lastMessageUpdate = DateTime.fromMillisecondsSinceEpoch(0);
   final List<String> _sequence = [];
-  final List<String> _rewardSequence = ['C', 'D', 'E'];
+  final List<String> _rewardSequence = ['C4', 'D4', 'E4'];
 
   void _startNote(String note, int pressId) {
     if (_keyboardDebugLogs) {
@@ -98,8 +98,7 @@ class _PianoScreenState extends State<PianoScreen> {
   }
 
   String _debugNoteName(String note) {
-    if (note == 'High C') return 'C5';
-    return '${note}4';
+    return note;
   }
 
   @override

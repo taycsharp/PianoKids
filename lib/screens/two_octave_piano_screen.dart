@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 import '../services/audio_service.dart';
 import '../widgets/two_octave_keyboard.dart';
 
-enum _PianoMode { freePlay, demo, practice }
+enum _PianoMode { freePlay, demo }
 
 class _DemoNoteEvent {
   final String note;
@@ -72,16 +72,29 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
 
   Future<void> _selectMode(_PianoMode mode) async {
     if (_mode == mode && mode != _PianoMode.demo) return;
-    setState(() => _mode = mode);
+    if (mounted) {
+      setState(() => _mode = mode);
+    }
     if (mode == _PianoMode.demo) {
       await _startDemo();
     } else {
-      _stopDemo(resetMode: false);
+      _stopDemo();
     }
   }
 
+  Future<void> _handlePracticeTap() async {
+    _stopDemo();
+    if (!mounted) return;
+    if (_mode != _PianoMode.freePlay) {
+      setState(() => _mode = _PianoMode.freePlay);
+    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text('Practice mode coming next'), duration: Duration(milliseconds: 1200)));
+  }
+
   Future<void> _startDemo() async {
-    _stopDemo(resetMode: false);
+    _stopDemo(updateUi: false);
     final runId = ++_demoRunId;
     if (mounted) {
       setState(() {
@@ -107,6 +120,10 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
       _startNote(event.note, pressId);
 
       await Future<void>.delayed(event.duration);
+      if (!mounted || runId != _demoRunId || !_isDemoPlaying) {
+        _stopNote(event.note, pressId);
+        break;
+      }
 
       _stopNote(event.note, pressId);
       final rightAfter = Set<String>.of(_demoRightNotes.value)..remove(event.note);
@@ -114,7 +131,7 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
       _demoRightNotes.value = Set<String>.unmodifiable(rightAfter);
       _demoLeftNotes.value = Set<String>.unmodifiable(leftAfter);
 
-      if (mounted && runId == _demoRunId) {
+      if (mounted && runId == _demoRunId && _isDemoPlaying) {
         setState(() {
           _demoProgress = (i + 1) / _twinkleDemo.length;
         });
@@ -136,20 +153,19 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
     _demoLeftNotes.value = const {};
   }
 
-  void _stopDemo({bool resetMode = false}) {
+  void _stopDemo({bool updateUi = true}) {
     _demoRunId++;
     _isDemoPlaying = false;
+    _demoProgress = 0;
     _clearDemoHighlights();
-    if (resetMode && mounted) {
-      setState(() => _mode = _PianoMode.freePlay);
-    } else if (mounted) {
+    if (updateUi && mounted) {
       setState(() {});
     }
   }
 
   @override
   void dispose() {
-    _stopDemo();
+    _stopDemo(updateUi: false);
     _pressedNotes.dispose();
     _demoRightNotes.dispose();
     _demoLeftNotes.dispose();
@@ -193,16 +209,27 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Expanded(child: SegmentedButton<_PianoMode>(
-                        showSelectedIcon: false,
-                        segments: const [
-                          ButtonSegment(value: _PianoMode.freePlay, label: Text('Free Play')),
-                          ButtonSegment(value: _PianoMode.demo, label: Text('Demo')),
-                          ButtonSegment(value: _PianoMode.practice, label: Text('Practice')),
-                        ],
-                        selected: {_mode},
-                        onSelectionChanged: (values) => _selectMode(values.first),
-                      )),
+                      Expanded(
+                        child: SegmentedButton<String>(
+                          showSelectedIcon: false,
+                          segments: const [
+                            ButtonSegment(value: 'free', label: Text('Free Play')),
+                            ButtonSegment(value: 'demo', label: Text('Demo')),
+                            ButtonSegment(value: 'practice', label: Text('Practice')),
+                          ],
+                          selected: {_mode == _PianoMode.demo ? 'demo' : 'free'},
+                          onSelectionChanged: (values) {
+                            final value = values.first;
+                            if (value == 'demo') {
+                              unawaited(_selectMode(_PianoMode.demo));
+                            } else if (value == 'practice') {
+                              unawaited(_handlePracticeTap());
+                            } else {
+                              unawaited(_selectMode(_PianoMode.freePlay));
+                            }
+                          },
+                        ),
+                      ),
                     ],
                   ),
                   if (_mode == _PianoMode.demo) ...[
@@ -224,10 +251,6 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
                         ),
                       ]),
                     ),
-                  ],
-                  if (_mode == _PianoMode.practice) ...[
-                    const SizedBox(height: 6),
-                    const Text('Practice mode coming next', style: TextStyle(fontWeight: FontWeight.w600)),
                   ],
                   const SizedBox(height: 6),
                   Expanded(

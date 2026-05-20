@@ -79,4 +79,30 @@ void main() {
     await tester.pump();
     expect(find.textContaining('Demo Playing'), findsOneWidget);
   });
+
+  testWidgets('practice mode shows panel and progresses only on correct notes', (tester) async {
+    await tester.pumpWidget(
+      Provider<AudioService>(
+        create: (_) => AudioService(),
+        child: const MaterialApp(home: TwoOctavePianoScreen()),
+      ),
+    );
+
+    await tester.tap(find.text('Practice'));
+    await tester.pump();
+
+    expect(find.text('Practice: Twinkle Twinkle'), findsOneWidget);
+    expect(find.text('Tap the glowing key'), findsOneWidget);
+    expect(find.text('Note 1 / 14'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('piano-key-D4')));
+    await tester.pump();
+    expect(find.text('Try again'), findsOneWidget);
+    expect(find.text('Note 1 / 14'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('piano-key-C4-upper')));
+    await tester.pump();
+    expect(find.text('Great!'), findsOneWidget);
+    expect(find.text('Note 2 / 14'), findsOneWidget);
+  });
 }

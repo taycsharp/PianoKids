@@ -28,17 +28,28 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1800));
     await tester.pumpAndSettle();
 
-    const homeActions = <String>[
+    const topVisibleActions = <String>[
+      'Learning Path',
       'Play Piano',
       'Two Octave Piano',
-      'Learning Path',
+    ];
+
+    for (final action in topVisibleActions) {
+      expect(find.text(action), findsOneWidget);
+    }
+
+    // Lower cards can be off-screen on smaller test viewports.
+    await tester.ensureVisible(find.text('Parent Zone'));
+    await tester.pumpAndSettle();
+
+    const lowerActions = <String>[
       'Song Practice',
       'Rhythm Game',
       'Progress',
       'Parent Zone',
     ];
 
-    for (final action in homeActions) {
+    for (final action in lowerActions) {
       expect(find.text(action), findsOneWidget);
     }
   });

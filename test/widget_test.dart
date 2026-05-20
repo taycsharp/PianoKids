@@ -38,8 +38,12 @@ void main() {
       expect(find.text(action), findsOneWidget);
     }
 
-    // Lower cards can be off-screen on smaller test viewports.
-    await tester.ensureVisible(find.text('Parent Zone'));
+    // Lower cards can be off-screen and not yet built on smaller test viewports.
+    await tester.scrollUntilVisible(
+      find.text('Parent Zone'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
 
     const lowerActions = <String>[

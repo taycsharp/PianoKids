@@ -47,9 +47,9 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining('Demo Playing'), findsOneWidget);
+    expect(find.textContaining('/'), findsOneWidget);
 
     await tester.tap(find.text('Stop'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 10));
   });
 }

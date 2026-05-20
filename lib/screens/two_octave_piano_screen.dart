@@ -57,6 +57,15 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
   double _demoProgress = 0;
   int _demoRunId = 0;
   int _demoPressSeed = -1000;
+  final Set<Timer> _demoTimers = <Timer>{};
+
+  Duration get _demoTotalDuration => _twinkleDemo.fold(
+    Duration.zero,
+    (sum, event) => sum + event.duration + const Duration(milliseconds: 50),
+  );
+
+  Duration get _demoElapsedDuration =>
+      _demoTotalDuration * _demoProgress.clamp(0, 1);
 
   void _startNote(String note, int pressId) {
     context.read<AudioService>().startKeyboardNoteForPress(note, pressId);
@@ -93,6 +102,31 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
       ..showSnackBar(const SnackBar(content: Text('Practice mode coming next'), duration: Duration(milliseconds: 1200)));
   }
 
+  Future<void> _waitForDemo(Duration delay, int runId) {
+    final completer = Completer<void>();
+    if (!_isDemoPlaying || runId != _demoRunId) {
+      completer.complete();
+      return completer.future;
+    }
+
+    late final Timer timer;
+    timer = Timer(delay, () {
+      _demoTimers.remove(timer);
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
+    });
+    _demoTimers.add(timer);
+    return completer.future;
+  }
+
+  void _cancelDemoTimers() {
+    for (final timer in _demoTimers) {
+      timer.cancel();
+    }
+    _demoTimers.clear();
+  }
+
   Future<void> _startDemo() async {
     _stopDemo(updateUi: false);
     final runId = ++_demoRunId;
@@ -119,7 +153,7 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
       _demoLeftNotes.value = Set<String>.unmodifiable(left);
       _startNote(event.note, pressId);
 
-      await Future<void>.delayed(event.duration);
+      await _waitForDemo(event.duration, runId);
       if (!mounted || runId != _demoRunId || !_isDemoPlaying) {
         _stopNote(event.note, pressId);
         break;
@@ -137,7 +171,7 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
         });
       }
 
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _waitForDemo(const Duration(milliseconds: 50), runId);
     }
 
     if (mounted && runId == _demoRunId) {
@@ -157,6 +191,7 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
     _demoRunId++;
     _isDemoPlaying = false;
     _demoProgress = 0;
+    _cancelDemoTimers();
     _clearDemoHighlights();
     if (updateUi && mounted) {
       setState(() {});
@@ -239,17 +274,53 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(color: const Color(0xFFF2F5FF), borderRadius: BorderRadius.circular(14)),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(_isDemoPlaying ? 'Demo Playing…' : 'Demo ready', style: const TextStyle(fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 2),
-                        const Text('Listen and watch the keys', style: TextStyle(fontSize: 12)),
-                        const SizedBox(height: 6),
-                        LinearProgressIndicator(value: _demoProgress),
-                        const SizedBox(height: 4),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(onPressed: _isDemoPlaying ? _stopDemo : _startDemo, child: Text(_isDemoPlaying ? 'Stop' : 'Play')),
+                        Row(
+                          children: [
+                            const Icon(Icons.music_note_rounded, color: Color(0xFF7E57F6)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(_isDemoPlaying ? 'Demo Playing...' : 'Demo ready', style: const TextStyle(fontWeight: FontWeight.w800)),
+                                  const SizedBox(height: 2),
+                                  const Text('Listen and watch the keys', style: TextStyle(fontSize: 12)),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                gradient: const LinearGradient(colors: [Color(0xFFFF8A80), Color(0xFFFF5252)]),
+                              ),
+                              child: TextButton.icon(
+                                style: TextButton.styleFrom(foregroundColor: Colors.white, visualDensity: VisualDensity.compact),
+                                onPressed: _isDemoPlaying ? _stopDemo : _startDemo,
+                                icon: Icon(_isDemoPlaying ? Icons.stop_rounded : Icons.play_arrow_rounded, size: 16),
+                                label: Text(_isDemoPlaying ? 'Stop' : 'Play'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(child: LinearProgressIndicator(value: _demoProgress, color: const Color(0xFF7E57F6), minHeight: 6, borderRadius: BorderRadius.circular(999))),
+                            const SizedBox(width: 8),
+                            Text('${_formatDuration(_demoElapsedDuration)} / ${_formatDuration(_demoTotalDuration)}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                          ],
                         ),
                       ]),
+                    ),
+                  ],
+                  if (_mode == _PianoMode.demo) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: const [
+                        Expanded(child: _HandHint(dotColor: Color(0xFFA16DFF), title: 'Left Hand (Bass)', subtitle: 'Simple bass notes')),
+                        SizedBox(width: 8),
+                        Expanded(child: _HandHint(dotColor: Color(0xFF4D96FF), title: 'Right Hand (Melody)', subtitle: 'Main melody')),
+                      ],
                     ),
                   ],
                   const SizedBox(height: 6),
@@ -277,6 +348,39 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
           },
         ),
       ),
+    );
+  }
+}
+
+String _formatDuration(Duration duration) {
+  final totalSeconds = duration.inSeconds;
+  final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+  final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+  return '$minutes:$seconds';
+}
+
+class _HandHint extends StatelessWidget {
+  final Color dotColor;
+  final String title;
+  final String subtitle;
+  const _HandHint({required this.dotColor, required this.title, required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(width: 10, height: 10, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+              Text(subtitle, style: const TextStyle(fontSize: 11, color: Color(0xFF5A6472))),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

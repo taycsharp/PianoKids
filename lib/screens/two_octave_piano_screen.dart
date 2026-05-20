@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../services/audio_service.dart';
@@ -341,6 +342,18 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
     }
   }
 
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]),
+    );
+  }
+
   @override
   void dispose() {
     _stopDemo(updateUi: false);
@@ -348,6 +361,14 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
     _demoRightNotes.dispose();
     _demoLeftNotes.dispose();
     _practiceTargetNotes.dispose();
+    unawaited(
+      SystemChrome.setPreferredOrientations(const [
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]),
+    );
     super.dispose();
   }
 

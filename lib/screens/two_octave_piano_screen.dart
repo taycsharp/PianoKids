@@ -359,6 +359,11 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final isLandscape = constraints.maxWidth > constraints.maxHeight;
+            if (!isLandscape) {
+              return const _RotateToLandscapePrompt();
+            }
+
             final horizontalPadding = constraints.maxWidth < 700 ? 8.0 : 12.0;
             final topPadding = constraints.maxHeight < 420 ? 4.0 : 6.0;
             final bottomPadding = constraints.maxHeight < 420 ? 4.0 : 8.0;
@@ -538,6 +543,62 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+
+class _RotateToLandscapePrompt extends StatelessWidget {
+  const _RotateToLandscapePrompt();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Align(
+              alignment: Alignment.topLeft,
+              child: IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+            const Spacer(),
+            Container(
+              width: 110,
+              height: 110,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF4FF),
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: const [BoxShadow(color: Color(0x22000000), blurRadius: 14, offset: Offset(0, 6))],
+              ),
+              child: const Icon(Icons.screen_rotation_alt_rounded, size: 62, color: Color(0xFF4D96FF)),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Rotate your iPhone',
+              style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Color(0xFF34344A)),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Two Octave Piano works best in landscape. Turn your phone sideways to play with bigger keys.',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, height: 1.35, color: Color(0xFF56637A)),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(color: const Color(0xFFFFF6DA), borderRadius: BorderRadius.circular(14)),
+              child: const Text('🎹 Big keys feel better in landscape!', style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF7A5A00))),
+            ),
+            const Spacer(),
+          ],
         ),
       ),
     );

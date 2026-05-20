@@ -41,7 +41,7 @@ class TwoOctaveKeyboard extends StatelessWidget {
             cKeySemanticSuffix: 'upper',
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 8),
         Expanded(
           child: _TwoOctaveRow(
             whiteNotes: _bottomWhite,
@@ -74,11 +74,12 @@ class _TwoOctaveRow extends StatelessWidget { /* omitted for brevity in cmd? */
     return LayoutBuilder(builder: (context, constraints) {
       final keyWidth = constraints.maxWidth / whiteNotes.length;
       final blackKeyWidth = keyWidth * 0.58;
-      final blackKeyHeight = constraints.maxHeight * 0.6;
+      final blackKeyHeight = constraints.maxHeight * 0.64;
       final octave = whiteNotes.first.substring(1);
+      final framePadding = constraints.maxHeight < 180 ? 5.0 : 7.0;
 
       return Container(
-        padding: const EdgeInsets.all(8),
+        padding: EdgeInsets.all(framePadding),
         decoration: BoxDecoration(color: const Color(0xFF34344A), borderRadius: BorderRadius.circular(26)),
         child: _HighlightedKeysBuilder(
           highlightedNotes: highlightedNotes,

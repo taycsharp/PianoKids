@@ -40,26 +40,53 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
     final audio = context.read<AudioService>();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Two Octave Piano')),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final padding = constraints.maxHeight < 500 ? 10.0 : 16.0;
+            final horizontalPadding = constraints.maxWidth < 700 ? 8.0 : 12.0;
+            final topPadding = constraints.maxHeight < 420 ? 4.0 : 6.0;
+            final bottomPadding = constraints.maxHeight < 420 ? 4.0 : 8.0;
+
             return Padding(
-              padding: EdgeInsets.all(padding),
-              child: ValueListenableBuilder<bool>(
-                valueListenable: audio.keyboardCacheReadyListenable,
-                builder: (context, isKeyboardReady, child) {
-                  return AnimatedOpacity(
-                    duration: const Duration(milliseconds: 180),
-                    opacity: isKeyboardReady ? 1 : 0.55,
-                    child: TwoOctaveKeyboard(
-                      highlightedNotesListenable: _pressedNotes,
-                      onKeyPressStarted: _startNote,
-                      onKeyPressStopped: _stopNote,
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                topPadding,
+                horizontalPadding,
+                bottomPadding,
+              ),
+              child: Column(
+                children: [
+                  Align(
+                    alignment: Alignment.topLeft,
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      iconSize: 22,
+                      splashRadius: 20,
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints(minHeight: 32, minWidth: 32),
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      tooltip: MaterialLocalizations.of(context).backButtonTooltip,
                     ),
-                  );
-                },
+                  ),
+                  const SizedBox(height: 4),
+                  Expanded(
+                    child: ValueListenableBuilder<bool>(
+                      valueListenable: audio.keyboardCacheReadyListenable,
+                      builder: (context, isKeyboardReady, child) {
+                        return AnimatedOpacity(
+                          duration: const Duration(milliseconds: 180),
+                          opacity: isKeyboardReady ? 1 : 0.55,
+                          child: TwoOctaveKeyboard(
+                            highlightedNotesListenable: _pressedNotes,
+                            onKeyPressStarted: _startNote,
+                            onKeyPressStopped: _stopNote,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
             );
           },

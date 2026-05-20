@@ -28,7 +28,34 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1800));
     await tester.pumpAndSettle();
 
-    expect(find.text('Start Learning'), findsOneWidget);
+    const topVisibleActions = <String>[
+      'Learning Path',
+      'Play Piano',
+      'Two Octave Piano',
+    ];
+
+    for (final action in topVisibleActions) {
+      expect(find.text(action), findsOneWidget);
+    }
+
+    // Lower cards can be off-screen and not yet built on smaller test viewports.
+    await tester.scrollUntilVisible(
+      find.text('Parent Zone'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+
+    const lowerActions = <String>[
+      'Song Practice',
+      'Rhythm Game',
+      'Progress',
+      'Parent Zone',
+    ];
+
+    for (final action in lowerActions) {
+      expect(find.text(action), findsOneWidget);
+    }
   });
 
   testWidgets('piano key pointers start and stop independently', (tester) async {

@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 import '../services/audio_service.dart';
 import '../widgets/two_octave_keyboard.dart';
 
-enum _PianoMode { freePlay, demo }
+enum _PianoMode { freePlay, demo, practice }
 
 enum _DemoSong { twinkleTwinkle, maryHadALittleLamb, odeToJoy, hotCrossBuns }
 
@@ -128,11 +128,15 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
   final ValueNotifier<Set<String>> _pressedNotes = ValueNotifier(const {});
   final ValueNotifier<Set<String>> _demoRightNotes = ValueNotifier(const {});
   final ValueNotifier<Set<String>> _demoLeftNotes = ValueNotifier(const {});
+  final ValueNotifier<Set<String>> _practiceTargetNotes = ValueNotifier(const {});
 
   _PianoMode _mode = _PianoMode.freePlay;
   _DemoSong _selectedSong = _DemoSong.twinkleTwinkle;
   bool _isDemoPlaying = false;
+  bool _isPracticeComplete = false;
   double _demoProgress = 0;
+  int _practiceIndex = 0;
+  String _practiceFeedback = 'Tap the glowing key';
   int _demoRunId = 0;
   int _demoPressSeed = -1000;
   final Set<Timer> _demoTimers = <Timer>{};
@@ -147,10 +151,16 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
   Duration get _demoElapsedDuration =>
       _demoTotalDuration * _demoProgress.clamp(0, 1);
 
+  List<String> get _practiceMelody =>
+      _selectedDemo.where((event) => event.isRightHand).map((event) => event.note).toList(growable: false);
+
   void _startNote(String note, int pressId) {
     context.read<AudioService>().startKeyboardNoteForPress(note, pressId);
     _activePresses[pressId] = note;
     _pressedNotes.value = Set<String>.unmodifiable(_activePresses.values);
+    if (_mode == _PianoMode.practice && pressId >= 0) {
+      _handlePracticeInput(note);
+    }
   }
 
   void _stopNote(String note, int pressId) {
@@ -165,21 +175,59 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
       setState(() => _mode = mode);
     }
     if (mode == _PianoMode.demo) {
+      _resetPractice(updateUi: false);
       await _startDemo();
+    } else if (mode == _PianoMode.practice) {
+      _stopDemo();
+      _startPractice();
     } else {
       _stopDemo();
+      _resetPractice();
     }
   }
 
-  Future<void> _handlePracticeTap() async {
-    _stopDemo();
-    if (!mounted) return;
-    if (_mode != _PianoMode.freePlay) {
-      setState(() => _mode = _PianoMode.freePlay);
+  void _startPractice() {
+    _practiceIndex = 0;
+    _isPracticeComplete = _practiceMelody.isEmpty;
+    _practiceFeedback = _isPracticeComplete ? 'Great job! Song complete!' : 'Tap the glowing key';
+    _practiceTargetNotes.value = _isPracticeComplete ? const {} : {_practiceMelody.first};
+    if (mounted) {
+      setState(() {});
     }
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(content: Text('Practice mode coming next'), duration: Duration(milliseconds: 1200)));
+  }
+
+  void _resetPractice({bool updateUi = true}) {
+    _practiceIndex = 0;
+    _isPracticeComplete = false;
+    _practiceFeedback = 'Tap the glowing key';
+    _practiceTargetNotes.value = const {};
+    if (updateUi && mounted) {
+      setState(() {});
+    }
+  }
+
+  void _handlePracticeInput(String note) {
+    if (_isPracticeComplete || _practiceMelody.isEmpty) return;
+    final target = _practiceMelody[_practiceIndex];
+    if (note != target) {
+      setState(() => _practiceFeedback = 'Try again');
+      return;
+    }
+    final nextIndex = _practiceIndex + 1;
+    if (nextIndex >= _practiceMelody.length) {
+      setState(() {
+        _practiceIndex = nextIndex;
+        _isPracticeComplete = true;
+        _practiceFeedback = 'Great job! Song complete!';
+      });
+      _practiceTargetNotes.value = const {};
+      return;
+    }
+    setState(() {
+      _practiceIndex = nextIndex;
+      _practiceFeedback = 'Great!';
+    });
+    _practiceTargetNotes.value = {_practiceMelody[nextIndex]};
   }
 
   Future<void> _waitForDemo(Duration delay, int runId) {
@@ -288,6 +336,9 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
     setState(() {
       _selectedSong = song;
     });
+    if (_mode == _PianoMode.practice) {
+      _startPractice();
+    }
   }
 
   @override
@@ -296,6 +347,7 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
     _pressedNotes.dispose();
     _demoRightNotes.dispose();
     _demoLeftNotes.dispose();
+    _practiceTargetNotes.dispose();
     super.dispose();
   }
 
@@ -356,13 +408,19 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
                             ButtonSegment(value: 'demo', label: Text('Demo')),
                             ButtonSegment(value: 'practice', label: Text('Practice')),
                           ],
-                          selected: {_mode == _PianoMode.demo ? 'demo' : 'free'},
+                          selected: {
+                            _mode == _PianoMode.demo
+                                ? 'demo'
+                                : _mode == _PianoMode.practice
+                                    ? 'practice'
+                                    : 'free',
+                          },
                           onSelectionChanged: (values) {
                             final value = values.first;
                             if (value == 'demo') {
                               unawaited(_selectMode(_PianoMode.demo));
                             } else if (value == 'practice') {
-                              unawaited(_handlePracticeTap());
+                              unawaited(_selectMode(_PianoMode.practice));
                             } else {
                               unawaited(_selectMode(_PianoMode.freePlay));
                             }
@@ -427,6 +485,35 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
                       ],
                     ),
                   ],
+                  if (_mode == _PianoMode.practice) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(color: const Color(0xFFFFF9E8), borderRadius: BorderRadius.circular(14)),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.auto_awesome_rounded, color: Color(0xFFF6A400)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Practice: ${_songNames[_selectedSong]}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                                Text(_practiceFeedback, style: const TextStyle(fontSize: 12)),
+                                Text(
+                                  _isPracticeComplete ? 'Song complete!' : 'Note ${_practiceIndex + 1} / ${_practiceMelody.length}',
+                                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_isPracticeComplete)
+                            TextButton(onPressed: _startPractice, child: const Text('Restart Practice ⭐')),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 6),
                   Expanded(
                     child: ValueListenableBuilder<bool>(
@@ -436,9 +523,10 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
                           duration: const Duration(milliseconds: 180),
                           opacity: isKeyboardReady ? 1 : 0.55,
                           child: TwoOctaveKeyboard(
-                            highlightedNotesListenable: _pressedNotes,
                             rightHandHighlightedNotesListenable: _demoRightNotes,
                             leftHandHighlightedNotesListenable: _demoLeftNotes,
+                            highlightedNotes: _mode == _PianoMode.practice ? _practiceTargetNotes.value : const {},
+                            highlightedNotesListenable: _mode == _PianoMode.practice ? _practiceTargetNotes : _pressedNotes,
                             onKeyPressStarted: _startNote,
                             onKeyPressStopped: _stopNote,
                           ),

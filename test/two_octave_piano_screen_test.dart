@@ -52,4 +52,31 @@ void main() {
     await tester.tap(find.text('Stop'));
     await tester.pump();
   });
+
+  testWidgets('song selector exposes multiple songs and updates selected song', (tester) async {
+    await tester.pumpWidget(
+      Provider<AudioService>(
+        create: (_) => AudioService(),
+        child: const MaterialApp(home: TwoOctavePianoScreen()),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey<String>('demo-song-selector')), findsOneWidget);
+    expect(find.text('Twinkle Twinkle'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey<String>('demo-song-selector')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mary Had a Little Lamb'), findsWidgets);
+    expect(find.text('Ode to Joy'), findsWidgets);
+    expect(find.text('Hot Cross Buns'), findsWidgets);
+
+    await tester.tap(find.text('Mary Had a Little Lamb').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Mary Had a Little Lamb'), findsOneWidget);
+
+    await tester.tap(find.text('Demo'));
+    await tester.pump();
+    expect(find.textContaining('Demo Playing'), findsOneWidget);
+  });
 }

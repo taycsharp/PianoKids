@@ -28,7 +28,19 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1800));
     await tester.pumpAndSettle();
 
-    expect(find.text('Start Learning'), findsOneWidget);
+    const homeActions = <String>[
+      'Play Piano',
+      'Two Octave Piano',
+      'Learning Path',
+      'Song Practice',
+      'Rhythm Game',
+      'Progress',
+      'Parent Zone',
+    ];
+
+    for (final action in homeActions) {
+      expect(find.text(action), findsOneWidget);
+    }
   });
 
   testWidgets('piano key pointers start and stop independently', (tester) async {

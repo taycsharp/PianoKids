@@ -7,7 +7,22 @@ import 'package:happy_piano_kids/services/audio_service.dart';
 import 'package:happy_piano_kids/widgets/two_octave_keyboard.dart';
 
 void main() {
+  Future<void> setLandscapeSize(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(844, 390);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
+  Future<void> setPortraitSize(WidgetTester tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
   testWidgets('two octave keyboard exposes unique C4 keys and octave keys', (tester) async {
+    await setLandscapeSize(tester);
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -31,7 +46,8 @@ void main() {
     expect(find.byKey(const ValueKey<String>('piano-key-C5')), findsOneWidget);
   });
 
-  testWidgets('two octave screen shows mode buttons and demo panel', (tester) async {
+  testWidgets('two octave screen shows mode buttons and demo panel in landscape', (tester) async {
+    await setLandscapeSize(tester);
     await tester.pumpWidget(
       Provider<AudioService>(
         create: (_) => AudioService(),
@@ -42,6 +58,8 @@ void main() {
     expect(find.text('Free Play'), findsOneWidget);
     expect(find.text('Demo'), findsOneWidget);
     expect(find.text('Practice'), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('piano-key-C3')), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('piano-key-C5')), findsOneWidget);
 
     await tester.tap(find.text('Demo'));
     await tester.pump();
@@ -53,7 +71,24 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('two octave screen shows rotate prompt in portrait', (tester) async {
+    await setPortraitSize(tester);
+    await tester.pumpWidget(
+      Provider<AudioService>(
+        create: (_) => AudioService(),
+        child: const MaterialApp(home: TwoOctavePianoScreen()),
+      ),
+    );
+
+    expect(find.text('Rotate your iPhone'), findsOneWidget);
+    expect(find.textContaining('Two Octave Piano works best in landscape'), findsOneWidget);
+    expect(find.text('Free Play'), findsNothing);
+    expect(find.text('Demo'), findsNothing);
+    expect(find.text('Practice'), findsNothing);
+  });
+
   testWidgets('song selector exposes multiple songs and updates selected song', (tester) async {
+    await setLandscapeSize(tester);
     await tester.pumpWidget(
       Provider<AudioService>(
         create: (_) => AudioService(),
@@ -81,6 +116,7 @@ void main() {
   });
 
   testWidgets('practice mode shows panel and progresses only on correct notes', (tester) async {
+    await setLandscapeSize(tester);
     await tester.pumpWidget(
       Provider<AudioService>(
         create: (_) => AudioService(),

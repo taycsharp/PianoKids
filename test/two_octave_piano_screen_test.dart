@@ -119,7 +119,30 @@ void main() {
     expect(find.textContaining('Demo Playing'), findsOneWidget);
   });
 
-  testWidgets('practice mode shows panel and progresses only on correct notes', (tester) async {
+  
+  testWidgets('selecting Happy Birthday Simple updates practice song', (tester) async {
+    await setLandscapeSize(tester);
+    await tester.pumpWidget(
+      Provider<AudioService>(
+        create: (_) => AudioService(),
+        child: const MaterialApp(home: TwoOctavePianoScreen()),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('demo-song-selector')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Happy Birthday Simple').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Happy Birthday Simple'), findsOneWidget);
+
+    await tester.tap(find.text('Practice'));
+    await tester.pump();
+
+    expect(find.text('Practice: Happy Birthday Simple'), findsOneWidget);
+    expect(find.textContaining('Note 1 /'), findsOneWidget);
+  });
+testWidgets('practice mode shows panel and progresses only on correct notes', (tester) async {
     await setLandscapeSize(tester);
     await tester.pumpWidget(
       Provider<AudioService>(

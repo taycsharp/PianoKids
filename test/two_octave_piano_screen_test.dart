@@ -28,10 +28,23 @@ void main() {
 
   Future<void> selectSongFromDropdown(WidgetTester tester, String label) async {
     await openSongSelector(tester);
-    final itemFinder = find.text(label, skipOffstage: false);
-    expect(itemFinder, findsWidgets);
-    await tester.tap(itemFinder.last);
+
+    final textFinder = find.text(label, skipOffstage: false);
+    expect(textFinder, findsWidgets);
+
+    final clickableItemFinder = find.ancestor(
+      of: textFinder.last,
+      matching: find.byType(InkWell),
+    );
+
+    if (clickableItemFinder.evaluate().isNotEmpty) {
+      await tester.tap(clickableItemFinder.first);
+    } else {
+      await tester.tap(textFinder.last, warnIfMissed: false);
+    }
     await tester.pumpAndSettle();
+
+    expect(find.text(label), findsOneWidget);
   }
 
   testWidgets('two octave keyboard exposes unique C4 keys and octave keys', (tester) async {

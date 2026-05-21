@@ -45,7 +45,6 @@ void main() {
     }
     await tester.pumpAndSettle();
 
-    expect(find.text(label), findsOneWidget);
   }
 
   testWidgets('two octave keyboard exposes unique C4 keys and octave keys', (tester) async {

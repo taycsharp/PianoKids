@@ -21,6 +21,19 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
+  Future<void> openSongSelector(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey<String>('demo-song-selector')));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> selectSongFromDropdown(WidgetTester tester, String label) async {
+    await openSongSelector(tester);
+    final itemFinder = find.text(label, skipOffstage: false);
+    expect(itemFinder, findsWidgets);
+    await tester.tap(itemFinder.last);
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('two octave keyboard exposes unique C4 keys and octave keys', (tester) async {
     await setLandscapeSize(tester);
     await tester.pumpWidget(
@@ -99,18 +112,18 @@ void main() {
     expect(find.byKey(const ValueKey<String>('demo-song-selector')), findsOneWidget);
     expect(find.text('Twinkle Twinkle'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey<String>('demo-song-selector')));
-    await tester.pumpAndSettle();
+    await openSongSelector(tester);
 
-    expect(find.text('Mary Had a Little Lamb'), findsWidgets);
-    expect(find.text('Ode to Joy'), findsWidgets);
-    expect(find.text('Hot Cross Buns'), findsWidgets);
-    expect(find.text('Jingle Bells'), findsWidgets);
-    expect(find.text('London Bridge'), findsWidgets);
-    expect(find.text('Row Row Row Your Boat'), findsWidgets);
-    expect(find.text('Happy Birthday Simple'), findsWidgets);
+    expect(find.text('Twinkle Twinkle', skipOffstage: false), findsWidgets);
+    expect(find.text('Mary Had a Little Lamb', skipOffstage: false), findsWidgets);
+    expect(find.text('Ode to Joy', skipOffstage: false), findsWidgets);
+    expect(find.text('Hot Cross Buns', skipOffstage: false), findsWidgets);
+    expect(find.text('Jingle Bells', skipOffstage: false), findsWidgets);
+    expect(find.text('London Bridge', skipOffstage: false), findsWidgets);
+    expect(find.text('Row Row Row Your Boat', skipOffstage: false), findsWidgets);
+    expect(find.text('Happy Birthday Simple', skipOffstage: false), findsWidgets);
 
-    await tester.tap(find.text('Mary Had a Little Lamb').last);
+    await tester.tap(find.text('Mary Had a Little Lamb', skipOffstage: false).last);
     await tester.pumpAndSettle();
     expect(find.text('Mary Had a Little Lamb'), findsOneWidget);
 
@@ -119,7 +132,6 @@ void main() {
     expect(find.textContaining('Demo Playing'), findsOneWidget);
   });
 
-  
   testWidgets('selecting Happy Birthday Simple updates practice song', (tester) async {
     await setLandscapeSize(tester);
     await tester.pumpWidget(
@@ -129,10 +141,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(const ValueKey<String>('demo-song-selector')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Happy Birthday Simple').last);
-    await tester.pumpAndSettle();
+    await selectSongFromDropdown(tester, 'Happy Birthday Simple');
 
     expect(find.text('Happy Birthday Simple'), findsOneWidget);
 
@@ -142,7 +151,8 @@ void main() {
     expect(find.text('Practice: Happy Birthday Simple'), findsOneWidget);
     expect(find.textContaining('Note 1 /'), findsOneWidget);
   });
-testWidgets('practice mode shows panel and progresses only on correct notes', (tester) async {
+
+  testWidgets('practice mode shows panel and progresses only on correct notes', (tester) async {
     await setLandscapeSize(tester);
     await tester.pumpWidget(
       Provider<AudioService>(

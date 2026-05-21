@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:happy_piano_kids/data/two_octave_demo_songs.dart';
 import 'package:happy_piano_kids/screens/two_octave_piano_screen.dart';
 import 'package:happy_piano_kids/services/audio_service.dart';
 import 'package:happy_piano_kids/widgets/two_octave_keyboard.dart';
@@ -145,7 +146,7 @@ void main() {
     expect(find.textContaining('Demo Playing'), findsOneWidget);
   });
 
-  testWidgets('selecting Happy Birthday Simple updates practice song', (tester) async {
+  testWidgets('selecting Mary Had a Little Lamb updates practice song', (tester) async {
     await setLandscapeSize(tester);
     await tester.pumpWidget(
       Provider<AudioService>(
@@ -154,15 +155,31 @@ void main() {
       ),
     );
 
-    await selectSongFromDropdown(tester, 'Happy Birthday Simple');
+    await selectSongFromDropdown(tester, 'Mary Had a Little Lamb');
 
-    expect(find.text('Happy Birthday Simple'), findsOneWidget);
+    expect(find.text('Mary Had a Little Lamb'), findsOneWidget);
 
     await tester.tap(find.text('Practice'));
     await tester.pump();
 
-    expect(find.text('Practice: Happy Birthday Simple'), findsOneWidget);
+    expect(find.text('Practice: Mary Had a Little Lamb'), findsOneWidget);
     expect(find.textContaining('Note 1 /'), findsOneWidget);
+  });
+
+  test('song library keeps Happy Birthday Simple with A#4 notes', () {
+    final happyBirthday = twoOctaveDemoSongs.firstWhere(
+      (song) => song.name == 'Happy Birthday Simple',
+    );
+
+    expect(happyBirthday.events, isNotEmpty);
+
+    final melodyNotes = happyBirthday.events
+        .where((event) => event.isRightHand)
+        .map((event) => event.note)
+        .toList(growable: false);
+
+    expect(melodyNotes, contains('A#4'));
+    expect(melodyNotes.where((note) => note == 'A#4').length, greaterThanOrEqualTo(2));
   });
 
   testWidgets('practice mode shows panel and progresses only on correct notes', (tester) async {

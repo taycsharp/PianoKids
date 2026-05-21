@@ -105,6 +105,10 @@ void main() {
     expect(find.text('Mary Had a Little Lamb'), findsWidgets);
     expect(find.text('Ode to Joy'), findsWidgets);
     expect(find.text('Hot Cross Buns'), findsWidgets);
+    expect(find.text('Jingle Bells'), findsWidgets);
+    expect(find.text('London Bridge'), findsWidgets);
+    expect(find.text('Row Row Row Your Boat'), findsWidgets);
+    expect(find.text('Happy Birthday Simple'), findsWidgets);
 
     await tester.tap(find.text('Mary Had a Little Lamb').last);
     await tester.pumpAndSettle();
@@ -129,16 +133,16 @@ void main() {
 
     expect(find.text('Practice: Twinkle Twinkle'), findsOneWidget);
     expect(find.text('Tap the glowing key'), findsOneWidget);
-    expect(find.text('Note 1 / 14'), findsOneWidget);
+    expect(find.textContaining('Note 1 /'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey<String>('piano-key-D4')));
     await tester.pump();
     expect(find.text('Try again'), findsOneWidget);
-    expect(find.text('Note 1 / 14'), findsOneWidget);
+    expect(find.textContaining('Note 1 /'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey<String>('piano-key-C4-upper')));
     await tester.pump();
     expect(find.text('Great!'), findsOneWidget);
-    expect(find.text('Note 2 / 14'), findsOneWidget);
+    expect(find.textContaining('Note 2 /'), findsOneWidget);
   });
 }

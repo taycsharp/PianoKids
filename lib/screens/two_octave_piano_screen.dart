@@ -4,24 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../data/two_octave_demo_songs.dart';
 import '../services/audio_service.dart';
 import '../widgets/two_octave_keyboard.dart';
 
 enum _PianoMode { freePlay, demo, practice }
-
-enum _DemoSong { twinkleTwinkle, maryHadALittleLamb, odeToJoy, hotCrossBuns }
-
-class _DemoNoteEvent {
-  final String note;
-  final bool isRightHand;
-  final Duration duration;
-
-  const _DemoNoteEvent({
-    required this.note,
-    required this.isRightHand,
-    required this.duration,
-  });
-}
 
 class TwoOctavePianoScreen extends StatefulWidget {
   const TwoOctavePianoScreen({super.key});
@@ -31,98 +18,8 @@ class TwoOctavePianoScreen extends StatefulWidget {
 }
 
 class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
-  static const Map<_DemoSong, String> _songNames = {
-    _DemoSong.twinkleTwinkle: 'Twinkle Twinkle',
-    _DemoSong.maryHadALittleLamb: 'Mary Had a Little Lamb',
-    _DemoSong.odeToJoy: 'Ode to Joy',
-    _DemoSong.hotCrossBuns: 'Hot Cross Buns',
-  };
-
-  static const Map<_DemoSong, List<_DemoNoteEvent>> _demoSongs = {
-    _DemoSong.twinkleTwinkle: [
-    _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'C3', isRightHand: false, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'G4', isRightHand: true, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'G3', isRightHand: false, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'G4', isRightHand: true, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'A4', isRightHand: true, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'C3', isRightHand: false, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'A4', isRightHand: true, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'G4', isRightHand: true, duration: Duration(milliseconds: 650)),
-    _DemoNoteEvent(note: 'G3', isRightHand: false, duration: Duration(milliseconds: 500)),
-    _DemoNoteEvent(note: 'F4', isRightHand: true, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'F4', isRightHand: true, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'G3', isRightHand: false, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 450)),
-    _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 650)),
-    _DemoNoteEvent(note: 'C3', isRightHand: false, duration: Duration(milliseconds: 550)),
-  ],
-    _DemoSong.maryHadALittleLamb: [
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'C3', isRightHand: false, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'G3', isRightHand: false, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 650)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 650)),
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'C3', isRightHand: false, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'G4', isRightHand: true, duration: Duration(milliseconds: 500)),
-      _DemoNoteEvent(note: 'G4', isRightHand: true, duration: Duration(milliseconds: 700)),
-      _DemoNoteEvent(note: 'G3', isRightHand: false, duration: Duration(milliseconds: 450)),
-    ],
-    _DemoSong.odeToJoy: [
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'C3', isRightHand: false, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'F4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'G4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'G4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'G3', isRightHand: false, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'F4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'C3', isRightHand: false, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 520)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 700)),
-      _DemoNoteEvent(note: 'G3', isRightHand: false, duration: Duration(milliseconds: 450)),
-    ],
-    _DemoSong.hotCrossBuns: [
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'C3', isRightHand: false, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 550)),
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 550)),
-      _DemoNoteEvent(note: 'G3', isRightHand: false, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 380)),
-      _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 380)),
-      _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 380)),
-      _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 380)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 380)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 380)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 380)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'C3', isRightHand: false, duration: Duration(milliseconds: 450)),
-      _DemoNoteEvent(note: 'E4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'D4', isRightHand: true, duration: Duration(milliseconds: 420)),
-      _DemoNoteEvent(note: 'C4', isRightHand: true, duration: Duration(milliseconds: 650)),
-    ],
+  static final Map<String, DemoSong> _songsById = {
+    for (final song in twoOctaveDemoSongs) song.id: song,
   };
 
   final Map<int, String> _activePresses = {};
@@ -132,7 +29,7 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
   final ValueNotifier<Set<String>> _practiceTargetNotes = ValueNotifier(const {});
 
   _PianoMode _mode = _PianoMode.freePlay;
-  _DemoSong _selectedSong = _DemoSong.twinkleTwinkle;
+  String _selectedSongId = twoOctaveDemoSongs.first.id;
   bool _isDemoPlaying = false;
   bool _isPracticeComplete = false;
   double _demoProgress = 0;
@@ -142,7 +39,9 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
   int _demoPressSeed = -1000;
   final Set<Timer> _demoTimers = <Timer>{};
 
-  List<_DemoNoteEvent> get _selectedDemo => _demoSongs[_selectedSong] ?? const [];
+  DemoSong get _selectedSong => _songsById[_selectedSongId] ?? twoOctaveDemoSongs.first;
+
+  List<DemoNoteEvent> get _selectedDemo => _selectedSong.events;
 
   Duration get _demoTotalDuration => _selectedDemo.fold(
     Duration.zero,
@@ -328,14 +227,14 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
     }
   }
 
-  void _selectSong(_DemoSong song) {
-    if (_selectedSong == song) {
+  void _selectSong(String songId) {
+    if (_selectedSongId == songId) {
       return;
     }
     _stopDemo(updateUi: false);
     if (!mounted) return;
     setState(() {
-      _selectedSong = song;
+      _selectedSongId = songId;
     });
     if (_mode == _PianoMode.practice) {
       _startPractice();
@@ -409,14 +308,14 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
                         child: DropdownButtonHideUnderline(
-                          child: DropdownButton<_DemoSong>(
+                          child: DropdownButton<String>(
                             key: const ValueKey<String>('demo-song-selector'),
-                            value: _selectedSong,
+                            value: _selectedSongId,
                             isDense: true,
                             borderRadius: BorderRadius.circular(12),
                             icon: const Icon(Icons.arrow_drop_down_rounded, size: 18),
-                            items: _songNames.entries
-                                .map((entry) => DropdownMenuItem<_DemoSong>(value: entry.key, child: Text(entry.value, overflow: TextOverflow.ellipsis)))
+                            items: twoOctaveDemoSongs
+                                .map((song) => DropdownMenuItem<String>(value: song.id, child: Text(song.name, overflow: TextOverflow.ellipsis)))
                                 .toList(growable: false),
                             onChanged: (song) {
                               if (song == null) return;
@@ -525,7 +424,7 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Practice: ${_songNames[_selectedSong]}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                                Text('Practice: ${_selectedSong.name}', style: const TextStyle(fontWeight: FontWeight.w800)),
                                 Text(_practiceFeedback, style: const TextStyle(fontSize: 12)),
                                 Text(
                                   _isPracticeComplete ? 'Song complete!' : 'Note ${_practiceIndex + 1} / ${_practiceMelody.length}',

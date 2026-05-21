@@ -34,7 +34,7 @@ DemoNoteEvent _r(String note, [Duration duration = _n]) =>
 DemoNoteEvent _l(String note, [Duration duration = _n]) =>
     DemoNoteEvent(note: note, hand: DemoHand.left, duration: duration);
 
-const List<DemoSong> twoOctaveDemoSongs = [
+final List<DemoSong> twoOctaveDemoSongs = [
   DemoSong(id: 'twinkle_twinkle', name: 'Twinkle Twinkle', events: [
     _r('C4'), _r('C4'), _r('G4'), _r('G4'), _r('A4'), _r('A4'), _r('G4', _h), _l('C3'),
     _r('F4'), _r('F4'), _r('E4'), _r('E4'), _r('D4'), _r('D4'), _r('C4', _h), _l('F3'),

@@ -53,8 +53,10 @@ class RemoteMappers {
     }).toList();
   }
 
-  static List<DemoSong> mapTwoOctaveSongs(Map<String, dynamic> json) {
-    final rawItems = (json['data'] ?? json['songs']) as List<dynamic>?;
+  static List<DemoSong> mapTwoOctaveSongs(dynamic json) {
+    final rawItems = json is List<dynamic>
+        ? json
+        : ((json as Map<String, dynamic>)['data'] ?? json['songs']) as List<dynamic>?;
     if (rawItems == null) throw const FormatException('Missing two-octave songs data');
 
     return rawItems.map((item) {
@@ -65,7 +67,7 @@ class RemoteMappers {
         return DemoNoteEvent(
           note: (event['note'] ?? '').toString(),
           hand: (event['hand'] ?? 'right').toString() == 'left' ? DemoHand.left : DemoHand.right,
-          duration: Duration(milliseconds: (event['duration_ms'] as num?)?.toInt() ?? 420),
+          duration: Duration(milliseconds: ((event['duration_ms'] ?? event['durationMs']) as num?)?.toInt() ?? 420),
         );
       }).toList();
 

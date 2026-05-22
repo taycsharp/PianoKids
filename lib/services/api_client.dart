@@ -18,13 +18,21 @@ class ApiClient {
   Future<Map<String, dynamic>> getAppConfig() => _getJson('/app-config');
   Future<Map<String, dynamic>> getSongs() => _getJson('/songs');
   Future<Map<String, dynamic>> getLessons() => _getJson('/lessons');
-  Future<Map<String, dynamic>> getTwoOctaveSongs() {
+  Future<dynamic> getTwoOctaveSongs() {
     debugPrint('[API] base=$defaultBaseUrl');
     debugPrint('[API] GET /two-octave-songs start');
-    return _getJson('/two-octave-songs');
+    return _getDecoded('/two-octave-songs');
   }
 
   Future<Map<String, dynamic>> _getJson(String path) async {
+    final decoded = await _getDecoded(path);
+    if (decoded is! Map<String, dynamic>) {
+      throw ApiException('Unexpected JSON shape for $path');
+    }
+    return decoded;
+  }
+
+  Future<dynamic> _getDecoded(String path) async {
     final uri = Uri.parse('$defaultBaseUrl$path');
     final response = await _httpClient
         .get(uri)
@@ -34,11 +42,7 @@ class ApiClient {
       throw ApiException('Request failed with status ${response.statusCode} for $path');
     }
 
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Map<String, dynamic>) {
-      throw ApiException('Unexpected JSON shape for $path');
-    }
-    return decoded;
+    return jsonDecode(response.body);
   }
 }
 

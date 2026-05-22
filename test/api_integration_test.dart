@@ -20,10 +20,22 @@ class _FakeApiClient extends ApiClient {
   Future<Map<String, dynamic>> getLessons() async => const {'data': []};
 
   @override
-  Future<Map<String, dynamic>> getTwoOctaveSongs() async {
+  Future<dynamic> getTwoOctaveSongs() async {
     if (throwOnTwoOctaveSongs) throw ApiException('failed');
     return const {'data': []};
   }
+}
+
+
+class _InvalidTwoOctaveApiClient extends ApiClient {
+  @override
+  Future<Map<String, dynamic>> getSongs() async => const {'data': []};
+
+  @override
+  Future<Map<String, dynamic>> getLessons() async => const {'data': []};
+
+  @override
+  Future<dynamic> getTwoOctaveSongs() async => 'invalid-shape';
 }
 
 void main() {
@@ -74,6 +86,48 @@ void main() {
 
     expect(songs, isNotEmpty);
     expect(songs.first.id, 'mary_lamb');
+  });
+
+
+
+  test('two-octave raw array parses successfully', () {
+    final songs = RemoteMappers.mapTwoOctaveSongs([
+      {
+        'id': 'london_bridge',
+        'name': 'London Bridge',
+        'events': [
+          {'note': 'C4', 'hand': 'right', 'durationMs': 420}
+        ]
+      }
+    ]);
+
+    expect(songs, hasLength(1));
+    expect(songs.first.name, 'London Bridge');
+  });
+
+  test('two-octave wrapped data parses successfully', () {
+    final songs = RemoteMappers.mapTwoOctaveSongs({
+      'data': [
+        {
+          'id': 'twinkle_twinkle',
+          'name': 'Twinkle Twinkle',
+          'events': [
+            {'note': 'C4', 'hand': 'right', 'duration_ms': 420}
+          ]
+        }
+      ]
+    });
+
+    expect(songs, hasLength(1));
+    expect(songs.first.name, 'Twinkle Twinkle');
+  });
+
+  test('two-octave invalid shape falls back to local data', () async {
+    final repository = ContentRepository(apiClient: _InvalidTwoOctaveApiClient());
+    final songs = await repository.getTwoOctaveSongs();
+
+    expect(songs.map((song) => song.name), isNot(contains('London Bridge')));
+    expect(songs, isNotEmpty);
   });
 
   test('two octave local fallback excludes London Bridge', () async {

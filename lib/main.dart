@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'app.dart';
 import 'providers/progress_provider.dart';
 import 'services/audio_service.dart';
+import 'services/content_repository.dart';
 import 'services/progress_service.dart';
 
 Future<void> main() async {
@@ -18,6 +19,7 @@ Future<void> main() async {
       providers: [
         Provider<AudioService>(create: (_) => AudioService()),
         ChangeNotifierProvider<ProgressProvider>.value(value: progressProvider),
+        Provider<ContentRepository>(create: (_) => ContentRepository()),
       ],
       child: const HappyPianoKidsApp(),
     ),

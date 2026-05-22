@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../data/lesson_data.dart';
 import '../data/song_data.dart';
 import '../data/two_octave_demo_songs.dart';
@@ -37,9 +39,16 @@ class ContentRepository {
     try {
       final json = await _apiClient.getTwoOctaveSongs();
       final songs = RemoteMappers.mapTwoOctaveSongs(json);
-      if (songs.isEmpty) return twoOctaveDemoSongs;
+      if (songs.isEmpty) {
+        debugPrint('[Repo] two-octave empty remote -> fallback local=${twoOctaveDemoSongs.length}');
+        return twoOctaveDemoSongs;
+      }
+      final names = songs.map((song) => song.name).join(', ');
+      debugPrint('[Repo] two-octave remote ok count=${songs.length}');
+      debugPrint('[Repo] two-octave songs: $names');
       return songs;
-    } catch (_) {
+    } catch (error) {
+      debugPrint('[Repo] two-octave fallback reason=$error');
       return twoOctaveDemoSongs;
     }
   }

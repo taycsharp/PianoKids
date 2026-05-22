@@ -18,7 +18,15 @@ class _FakeContentRepository extends ContentRepository {
 }
 
 void main() {
-  final fakeSongLibrary = List<DemoSong>.unmodifiable(twoOctaveDemoSongs);
+  final fakeSongLibrary = List<DemoSong>.unmodifiable([
+    ...twoOctaveDemoSongs,
+    DemoSong(id: 'london_bridge', name: 'London Bridge', events: [
+      DemoNoteEvent(note: 'G4', hand: DemoHand.right, duration: Duration(milliseconds: 420)),
+      DemoNoteEvent(note: 'C3', hand: DemoHand.left, duration: Duration(milliseconds: 420)),
+      DemoNoteEvent(note: 'A4', hand: DemoHand.right, duration: Duration(milliseconds: 420)),
+      DemoNoteEvent(note: 'F3', hand: DemoHand.left, duration: Duration(milliseconds: 420)),
+    ]),
+  ]);
   final fakeRepository = _FakeContentRepository(songs: fakeSongLibrary);
 
   Future<void> setLandscapeSize(WidgetTester tester) async {

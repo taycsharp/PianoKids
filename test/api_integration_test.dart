@@ -5,20 +5,25 @@ import 'package:happy_piano_kids/services/api_client.dart';
 import 'package:happy_piano_kids/services/content_repository.dart';
 
 class _FakeApiClient extends ApiClient {
-  _FakeApiClient({this.songsJson, this.lessonsJson, this.throwOnSongs = false});
+  _FakeApiClient({this.throwOnSongs = false, this.throwOnTwoOctaveSongs = false});
 
-  final Map<String, dynamic>? songsJson;
-  final Map<String, dynamic>? lessonsJson;
   final bool throwOnSongs;
+  final bool throwOnTwoOctaveSongs;
 
   @override
   Future<Map<String, dynamic>> getSongs() async {
     if (throwOnSongs) throw ApiException('failed');
-    return songsJson!;
+    return const {'data': []};
   }
 
   @override
-  Future<Map<String, dynamic>> getLessons() async => lessonsJson!;
+  Future<Map<String, dynamic>> getLessons() async => const {'data': []};
+
+  @override
+  Future<Map<String, dynamic>> getTwoOctaveSongs() async {
+    if (throwOnTwoOctaveSongs) throw ApiException('failed');
+    return const {'data': []};
+  }
 }
 
 void main() {
@@ -69,5 +74,13 @@ void main() {
 
     expect(songs, isNotEmpty);
     expect(songs.first.id, 'mary_lamb');
+  });
+
+  test('two octave local fallback excludes London Bridge', () async {
+    final repository = ContentRepository(apiClient: _FakeApiClient(throwOnTwoOctaveSongs: true));
+    final songs = await repository.getTwoOctaveSongs();
+
+    expect(songs.map((song) => song.name), isNot(contains('London Bridge')));
+    expect(songs.map((song) => song.name), contains('Happy Birthday Simple'));
   });
 }

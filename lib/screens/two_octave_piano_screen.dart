@@ -325,7 +325,8 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
                             isDense: true,
                             borderRadius: BorderRadius.circular(12),
                             icon: const Icon(Icons.arrow_drop_down_rounded, size: 18),
-                            items: twoOctaveDemoSongs
+                            menuMaxHeight: 320,
+                            items: _songs
                                 .map((song) => DropdownMenuItem<String>(value: song.id, child: Text(song.name, overflow: TextOverflow.ellipsis)))
                                 .toList(growable: false),
                             onChanged: (song) {

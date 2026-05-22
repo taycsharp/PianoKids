@@ -195,6 +195,20 @@ void main() {
     expect(melodyNotes.where((note) => note == 'A#4').length, greaterThanOrEqualTo(2));
   });
 
+
+  testWidgets('can select London Bridge when provided by remote repository', (tester) async {
+    await setLandscapeSize(tester);
+    await pumpTwoOctaveScreen(tester);
+
+    await selectSongFromDropdown(tester, 'London Bridge');
+
+    expect(find.text('London Bridge'), findsOneWidget);
+
+    await tester.tap(find.text('Practice'));
+    await tester.pump();
+    expect(find.text('Practice: London Bridge'), findsOneWidget);
+  });
+
   testWidgets('practice mode shows panel and progresses only on correct notes', (tester) async {
     await setLandscapeSize(tester);
     await pumpTwoOctaveScreen(tester);

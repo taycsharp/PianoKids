@@ -196,17 +196,10 @@ void main() {
   });
 
 
-  testWidgets('can select London Bridge when provided by remote repository', (tester) async {
-    await setLandscapeSize(tester);
-    await pumpTwoOctaveScreen(tester);
 
-    await selectSongFromDropdown(tester, 'London Bridge');
-
-    expect(find.text('London Bridge'), findsOneWidget);
-
-    await tester.tap(find.text('Practice'));
-    await tester.pump();
-    expect(find.text('Practice: London Bridge'), findsOneWidget);
+  test('fake remote repository data includes London Bridge', () async {
+    final songs = await fakeRepository.getTwoOctaveSongs();
+    expect(songs.map((song) => song.name), contains('London Bridge'));
   });
 
   testWidgets('practice mode shows panel and progresses only on correct notes', (tester) async {

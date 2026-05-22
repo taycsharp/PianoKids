@@ -68,13 +68,6 @@ final List<DemoSong> twoOctaveDemoSongs = [
     _r('F4'), _r('F4'), _r('F4'), _r('F4'), _r('F4'), _r('E4'), _r('E4'), _r('E4'), _l('F3'),
     _r('E4'), _r('D4'), _r('D4'), _r('E4'), _r('D4'), _r('G4', _h), _l('G3'),
   ]),
-  DemoSong(id: 'london_bridge', name: 'London Bridge', events: [
-    _r('G4'), _r('A4'), _r('G4'), _r('F4'), _r('E4'), _r('F4'), _r('G4', _h), _l('C3'),
-    _r('D4'), _r('E4'), _r('F4', _h), _l('F3'),
-    _r('E4'), _r('F4'), _r('G4', _h), _l('G3'),
-    _r('G4'), _r('A4'), _r('G4'), _r('F4'), _r('E4'), _r('F4'), _r('G4', _h), _l('C3'),
-    _r('D4'), _r('G4'), _r('E4'), _r('C4', _h), _l('C3'),
-  ]),
   DemoSong(id: 'row_row_row', name: 'Row Row Row Your Boat', events: [
     _r('C4'), _r('C4'), _r('C4'), _r('D4'), _r('E4', _h), _l('C3'),
     _r('E4'), _r('D4'), _r('E4'), _r('F4'), _r('G4', _h), _l('G3'),

@@ -5,9 +5,30 @@ import 'package:provider/provider.dart';
 import 'package:happy_piano_kids/data/two_octave_demo_songs.dart';
 import 'package:happy_piano_kids/screens/two_octave_piano_screen.dart';
 import 'package:happy_piano_kids/services/audio_service.dart';
+import 'package:happy_piano_kids/services/content_repository.dart';
 import 'package:happy_piano_kids/widgets/two_octave_keyboard.dart';
 
+class _FakeContentRepository extends ContentRepository {
+  _FakeContentRepository({required this.songs});
+
+  final List<DemoSong> songs;
+
+  @override
+  Future<List<DemoSong>> getTwoOctaveSongs() async => songs;
+}
+
 void main() {
+  final fakeSongLibrary = List<DemoSong>.unmodifiable([
+    ...twoOctaveDemoSongs,
+    DemoSong(id: 'london_bridge', name: 'London Bridge', events: [
+      DemoNoteEvent(note: 'G4', hand: DemoHand.right, duration: Duration(milliseconds: 420)),
+      DemoNoteEvent(note: 'C3', hand: DemoHand.left, duration: Duration(milliseconds: 420)),
+      DemoNoteEvent(note: 'A4', hand: DemoHand.right, duration: Duration(milliseconds: 420)),
+      DemoNoteEvent(note: 'F3', hand: DemoHand.left, duration: Duration(milliseconds: 420)),
+    ]),
+  ]);
+  final fakeRepository = _FakeContentRepository(songs: fakeSongLibrary);
+
   Future<void> setLandscapeSize(WidgetTester tester) async {
     tester.view.physicalSize = const Size(844, 390);
     tester.view.devicePixelRatio = 1.0;
@@ -20,6 +41,19 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
+  Future<void> pumpTwoOctaveScreen(WidgetTester tester) async {
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<AudioService>(create: (_) => AudioService()),
+          Provider<ContentRepository>.value(value: fakeRepository),
+        ],
+        child: const MaterialApp(home: TwoOctavePianoScreen()),
+      ),
+    );
+    await tester.pump();
   }
 
   Future<void> openSongSelector(WidgetTester tester) async {
@@ -44,7 +78,6 @@ void main() {
       await tester.tap(textFinder.last, warnIfMissed: false);
     }
     await tester.pumpAndSettle();
-
   }
 
   testWidgets('two octave keyboard exposes unique C4 keys and octave keys', (tester) async {
@@ -74,12 +107,7 @@ void main() {
 
   testWidgets('two octave screen shows mode buttons and demo panel in landscape', (tester) async {
     await setLandscapeSize(tester);
-    await tester.pumpWidget(
-      Provider<AudioService>(
-        create: (_) => AudioService(),
-        child: const MaterialApp(home: TwoOctavePianoScreen()),
-      ),
-    );
+    await pumpTwoOctaveScreen(tester);
 
     expect(find.text('Free Play'), findsOneWidget);
     expect(find.text('Demo'), findsOneWidget);
@@ -99,12 +127,7 @@ void main() {
 
   testWidgets('two octave screen shows rotate prompt in portrait', (tester) async {
     await setPortraitSize(tester);
-    await tester.pumpWidget(
-      Provider<AudioService>(
-        create: (_) => AudioService(),
-        child: const MaterialApp(home: TwoOctavePianoScreen()),
-      ),
-    );
+    await pumpTwoOctaveScreen(tester);
 
     expect(find.text('Rotate your iPhone'), findsOneWidget);
     expect(find.textContaining('Two Octave Piano works best in landscape'), findsOneWidget);
@@ -115,12 +138,7 @@ void main() {
 
   testWidgets('song selector exposes multiple songs and updates selected song', (tester) async {
     await setLandscapeSize(tester);
-    await tester.pumpWidget(
-      Provider<AudioService>(
-        create: (_) => AudioService(),
-        child: const MaterialApp(home: TwoOctavePianoScreen()),
-      ),
-    );
+    await pumpTwoOctaveScreen(tester);
 
     expect(find.byKey(const ValueKey<String>('demo-song-selector')), findsOneWidget);
     expect(find.text('Twinkle Twinkle'), findsOneWidget);
@@ -147,12 +165,7 @@ void main() {
 
   testWidgets('selecting Mary Had a Little Lamb updates practice song', (tester) async {
     await setLandscapeSize(tester);
-    await tester.pumpWidget(
-      Provider<AudioService>(
-        create: (_) => AudioService(),
-        child: const MaterialApp(home: TwoOctavePianoScreen()),
-      ),
-    );
+    await pumpTwoOctaveScreen(tester);
 
     await selectSongFromDropdown(tester, 'Mary Had a Little Lamb');
 
@@ -165,8 +178,9 @@ void main() {
     expect(find.textContaining('Note 1 /'), findsOneWidget);
   });
 
-  test('song library keeps Happy Birthday Simple with A#4 notes', () {
-    final happyBirthday = twoOctaveDemoSongs.firstWhere(
+  test('repository song library keeps Happy Birthday Simple with A#4 notes', () async {
+    final songs = await fakeRepository.getTwoOctaveSongs();
+    final happyBirthday = songs.firstWhere(
       (song) => song.name == 'Happy Birthday Simple',
     );
 
@@ -181,14 +195,16 @@ void main() {
     expect(melodyNotes.where((note) => note == 'A#4').length, greaterThanOrEqualTo(2));
   });
 
+
+
+  test('fake remote repository data includes London Bridge', () async {
+    final songs = await fakeRepository.getTwoOctaveSongs();
+    expect(songs.map((song) => song.name), contains('London Bridge'));
+  });
+
   testWidgets('practice mode shows panel and progresses only on correct notes', (tester) async {
     await setLandscapeSize(tester);
-    await tester.pumpWidget(
-      Provider<AudioService>(
-        create: (_) => AudioService(),
-        child: const MaterialApp(home: TwoOctavePianoScreen()),
-      ),
-    );
+    await pumpTwoOctaveScreen(tester);
 
     await tester.tap(find.text('Practice'));
     await tester.pump();

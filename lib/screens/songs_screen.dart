@@ -1,14 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../data/song_data.dart';
+import '../models/song.dart';
 import '../providers/progress_provider.dart';
 import '../services/audio_service.dart';
+import '../services/content_repository.dart';
 import '../widgets/song_card.dart';
 import 'song_practice_screen.dart';
 
-class SongsScreen extends StatelessWidget {
+class SongsScreen extends StatefulWidget {
   const SongsScreen({super.key});
+
+  @override
+  State<SongsScreen> createState() => _SongsScreenState();
+}
+
+class _SongsScreenState extends State<SongsScreen> {
+  late final Future<List<Song>> _songsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _songsFuture = context.read<ContentRepository>().getSongs();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,30 +34,36 @@ class SongsScreen extends StatelessWidget {
       body: ValueListenableBuilder<bool>(
         valueListenable: audio.keyboardCacheReadyListenable,
         builder: (context, isAudioReady, child) {
-          return ListView(
-            padding: const EdgeInsets.all(18),
-            children: [
-              Text(
-                'Choose a song!',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              if (!isAudioReady) ...[
-                const SizedBox(height: 12),
-                const _LoadingPianoSoundsBanner(),
-              ],
-              const SizedBox(height: 14),
-              for (final song in SongData.songs)
-                SongCard(
-                  song: song,
-                  completed: progress.progress.completedSongIds.contains(song.id),
-                  onDemo: () => context.read<AudioService>().playSongDemo(song),
-                  onPractice: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => SongPracticeScreen(song: song),
-                    ),
+          return FutureBuilder<List<Song>>(
+            future: _songsFuture,
+            builder: (context, snapshot) {
+              final songs = snapshot.data ?? const <Song>[];
+              return ListView(
+                padding: const EdgeInsets.all(18),
+                children: [
+                  Text(
+                    'Choose a song!',
+                    style: Theme.of(context).textTheme.headlineMedium,
                   ),
-                ),
-            ],
+                  if (!isAudioReady) ...[
+                    const SizedBox(height: 12),
+                    const _LoadingPianoSoundsBanner(),
+                  ],
+                  const SizedBox(height: 14),
+                  for (final song in songs)
+                    SongCard(
+                      song: song,
+                      completed: progress.progress.completedSongIds.contains(song.id),
+                      onDemo: () => context.read<AudioService>().playSongDemo(song),
+                      onPractice: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => SongPracticeScreen(song: song),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           );
         },
       ),

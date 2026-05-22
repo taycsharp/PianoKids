@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../data/two_octave_demo_songs.dart';
 import '../services/audio_service.dart';
+import '../services/content_repository.dart';
 import '../widgets/two_octave_keyboard.dart';
 
 enum _PianoMode { freePlay, demo, practice }
@@ -18,10 +19,6 @@ class TwoOctavePianoScreen extends StatefulWidget {
 }
 
 class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
-  static final Map<String, DemoSong> _songsById = {
-    for (final song in twoOctaveDemoSongs) song.id: song,
-  };
-
   final Map<int, String> _activePresses = {};
   final ValueNotifier<Set<String>> _pressedNotes = ValueNotifier(const {});
   final ValueNotifier<Set<String>> _demoRightNotes = ValueNotifier(const {});
@@ -29,6 +26,7 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
   final ValueNotifier<Set<String>> _practiceTargetNotes = ValueNotifier(const {});
 
   _PianoMode _mode = _PianoMode.freePlay;
+  List<DemoSong> _songs = twoOctaveDemoSongs;
   String _selectedSongId = twoOctaveDemoSongs.first.id;
   bool _isDemoPlaying = false;
   bool _isPracticeComplete = false;
@@ -39,7 +37,7 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
   int _demoPressSeed = -1000;
   final Set<Timer> _demoTimers = <Timer>{};
 
-  DemoSong get _selectedSong => _songsById[_selectedSongId] ?? twoOctaveDemoSongs.first;
+  DemoSong get _selectedSong => _songs.firstWhere((song) => song.id == _selectedSongId, orElse: () => _songs.first);
 
   List<DemoNoteEvent> get _selectedDemo => _selectedSong.events;
 
@@ -242,9 +240,22 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
   }
 
 
+
+  Future<void> _loadSongs() async {
+    final remoteSongs = await context.read<ContentRepository>().getTwoOctaveSongs();
+    if (!mounted || remoteSongs.isEmpty) return;
+    setState(() {
+      _songs = remoteSongs;
+      if (_songs.every((song) => song.id != _selectedSongId)) {
+        _selectedSongId = _songs.first.id;
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
+    _loadSongs();
     unawaited(
       SystemChrome.setPreferredOrientations(const [
         DeviceOrientation.landscapeLeft,
@@ -314,7 +325,8 @@ class _TwoOctavePianoScreenState extends State<TwoOctavePianoScreen> {
                             isDense: true,
                             borderRadius: BorderRadius.circular(12),
                             icon: const Icon(Icons.arrow_drop_down_rounded, size: 18),
-                            items: twoOctaveDemoSongs
+                            menuMaxHeight: 320,
+                            items: _songs
                                 .map((song) => DropdownMenuItem<String>(value: song.id, child: Text(song.name, overflow: TextOverflow.ellipsis)))
                                 .toList(growable: false),
                             onChanged: (song) {

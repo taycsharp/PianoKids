@@ -8,7 +8,7 @@ class ApiClient {
 
   static const String defaultBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://dolasol.pho12h.com/api',
+    defaultValue: 'https://api.dolasol.com/api',
   );
 
   final http.Client _httpClient;
